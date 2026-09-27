@@ -23,7 +23,7 @@ export default function CreateExam() {
         createdAt: serverTimestamp(),
       });
       toast.success('Exam created successfully');
-      router.push(`/admin/exams/${docRef.id}`);
+      router.push(`/dashboard/teacher/exams/${docRef.id}`);
     } catch (error) {
       toast.error('Failed to create exam');
       console.error(error);

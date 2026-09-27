@@ -6,8 +6,11 @@ import { db } from '@/lib/firebase';
 import { useProctoring } from '@/hooks/useProctoring';
 import { Exam, Question } from '@/types';
 import { toast } from 'react-hot-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function ExamTakingInterface({ params }: { params: { id: string } }) {
+  const { user } = useAuth();
+  const isPreviewMode = user?.role === 'admin' || user?.role === 'teacher';
   const [exam, setExam] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
@@ -20,7 +23,7 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
     setStatus('terminated');
   }, []);
 
-  useProctoring({ attemptId, status, onTerminate: handleTerminate });
+  useProctoring({ attemptId, status, onTerminate: handleTerminate, isPreviewMode });
 
   useEffect(() => {
     const fetchExamDetails = async () => {
@@ -92,12 +95,13 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
 
       // 3. Create attempt
       const attemptRef = await addDoc(collection(db, 'attempts'), {
-        studentId: 'student_placeholder', // replace with real auth
+        studentId: user?.uid || 'anonymous',
         examId: exam.id,
         variantId: variantId, // store the variant assigned
         answers: {},
         status: 'in_progress',
         startedAt: serverTimestamp(),
+        isPreview: isPreviewMode,
       });
 
       setAttemptId(attemptRef.id);
@@ -142,7 +146,12 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
         <p className="text-slate-600 mb-6">{exam?.description}</p>
         <ul className="mb-8 space-y-2 text-slate-700">
           <li><strong>Time Limit:</strong> {exam?.timeLimit} minutes</li>
-          <li className="text-red-500 mt-4"><strong>Warning:</strong> Switching tabs or losing window focus will terminate the exam. Right-click and Copy/Paste are disabled.</li>
+          {!isPreviewMode && (
+             <li className="text-red-500 mt-4"><strong>Warning:</strong> Switching tabs or losing window focus will terminate the exam. Right-click and Copy/Paste are disabled.</li>
+          )}
+          {isPreviewMode && (
+             <li className="text-blue-500 mt-4"><strong>Preview Mode Active:</strong> Proctoring is bypassed and correct answers are highlighted. This attempt will not affect statistics.</li>
+          )}
         </ul>
         <button
           onClick={handleStartExam}
@@ -171,24 +180,33 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
         <h3 className="text-xl font-medium text-slate-800 mb-6">{currentQ?.text}</h3>
 
         <div className="space-y-3">
-          {currentQ?.options.map((option, index) => (
-            <label
-              key={index}
-              className={`flex items-center p-4 border rounded-md cursor-pointer transition-colors ${
-                answers[currentQ.id] === index ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              <input
-                type="radio"
-                name={currentQ.id}
-                value={index}
-                checked={answers[currentQ.id] === index}
-                onChange={() => handleSelectOption(currentQ.id, index)}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="ml-3 text-slate-700">{option}</span>
-            </label>
-          ))}
+          {currentQ?.options.map((option, index) => {
+            const isSelected = answers[currentQ.id] === index;
+            const isCorrectHighlight = isPreviewMode && currentQ.correctOption === index;
+
+            return (
+              <label
+                key={index}
+                className={`flex items-center p-4 border rounded-md cursor-pointer transition-colors ${
+                  isCorrectHighlight ? 'border-green-500 bg-green-50 ring-2 ring-green-200' :
+                  isSelected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={currentQ.id}
+                  value={index}
+                  checked={isSelected}
+                  onChange={() => handleSelectOption(currentQ.id, index)}
+                  className={`w-4 h-4 ${isCorrectHighlight ? 'text-green-600' : 'text-blue-600'}`}
+                />
+                <span className="ml-3 text-slate-700 flex-1">{option}</span>
+                {isCorrectHighlight && (
+                  <span className="ml-2 text-green-600 font-bold text-sm bg-green-100 px-2 py-1 rounded">Correct</span>
+                )}
+              </label>
+            );
+          })}
         </div>
       </div>
 
