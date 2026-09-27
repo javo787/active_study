@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { parseExamFile, ParsedQuestion } from '@/lib/parser';
 import { toast } from 'react-hot-toast';
@@ -49,12 +49,15 @@ export default function CustomTestImporter() {
       const masterExamRef = doc(collection(db, 'exams'));
       const batch = writeBatch(db);
 
+      const expiresAt = Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+
       batch.set(masterExamRef, {
         title: examTitle,
         timeLimit: Number(timeLimit),
         isPublished: true,
         totalVariants: Number(numVariants),
         createdAt: serverTimestamp(),
+        expiresAt,
       });
 
       for (let i = 0; i < numVariants; i++) {
@@ -84,7 +87,8 @@ export default function CustomTestImporter() {
 
         const variantRef = doc(collection(db, `exams/${masterExamRef.id}/variants`));
         batch.set(variantRef, {
-          examId: masterExamRef.id
+          examId: masterExamRef.id,
+          expiresAt,
         });
 
         // Add questions
@@ -94,7 +98,8 @@ export default function CustomTestImporter() {
                text: q.text,
                options: q.options,
                correctOption: Number(q.correctOption),
-               type: 'radio'
+               type: 'radio',
+               expiresAt,
            });
         });
       }

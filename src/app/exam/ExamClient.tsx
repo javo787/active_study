@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp, updateDoc, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useProctoring } from '@/hooks/useProctoring';
 import { Exam, Question } from '@/types';
@@ -54,13 +54,16 @@ export default function ExamTakingInterface() {
     if (!attemptId) return;
 
     try {
+      const score = questions.filter(q => answers[q.id] === q.correctOption).length;
+
       await updateDoc(doc(db, 'attempts', attemptId), {
         status: 'completed',
         finishedAt: serverTimestamp(),
+        score,
+        totalQuestions: questions.length,
       });
       setStatus('completed');
 
-      // Restore header
       const header = document.getElementById('student-header');
       if (header) header.style.display = 'block';
 
@@ -68,7 +71,7 @@ export default function ExamTakingInterface() {
       console.error(err);
       toast.error('Failed to submit exam');
     }
-  }, [attemptId]);
+  }, [attemptId, questions, answers]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -84,7 +87,20 @@ export default function ExamTakingInterface() {
     if (!exam) return;
 
     try {
-      // 1. Fetch variants and pick one randomly
+      if (!isPreviewMode) {
+        const prevQ = query(
+          collection(db, 'attempts'),
+          where('studentId', '==', user?.uid),
+          where('examId', '==', exam.id),
+          where('status', '==', 'completed')
+        );
+        const prevSnap = await getDocs(prevQ);
+        if (!prevSnap.empty) {
+          toast.error('You have already completed this exam.');
+          return;
+        }
+      }
+
       const variantsSnapshot = await getDocs(collection(db, `exams/${exam.id}/variants`));
       if (variantsSnapshot.empty) {
         toast.error('No variants found for this exam.');
@@ -95,19 +111,20 @@ export default function ExamTakingInterface() {
       const randomVariant = variantsList[Math.floor(Math.random() * variantsList.length)];
       const variantId = randomVariant.id;
 
-      // 2. Fetch questions for this variant
       const qSnapshot = await getDocs(collection(db, `exams/${exam.id}/variants/${variantId}/questions`));
       const loadedQuestions = qSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
       setQuestions(loadedQuestions);
 
-      // 3. Create attempt
       const attemptRef = await addDoc(collection(db, 'attempts'), {
         studentId: user?.uid || 'anonymous',
+        studentName: user?.displayName || user?.email || 'Unknown',
         examId: exam.id,
-        variantId: variantId, // store the variant assigned
+        examTitle: exam.title,
+        variantId: variantId,
         answers: {},
         status: 'in_progress',
         startedAt: serverTimestamp(),
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)),
         isPreview: isPreviewMode,
       });
 
@@ -116,7 +133,6 @@ export default function ExamTakingInterface() {
       setStatus('in_progress');
       toast.success('Exam started. Do not switch tabs or copy/paste.', { duration: 5000 });
 
-      // Hide header hack for full screen feel
       const header = document.getElementById('student-header');
       if (header) header.style.display = 'none';
 
