@@ -7,9 +7,10 @@ interface UseProctoringProps {
   attemptId: string | null;
   status?: string;
   onTerminate: (reason: string) => void;
+  isPreviewMode?: boolean;
 }
 
-export const useProctoring = ({ attemptId, status, onTerminate }: UseProctoringProps) => {
+export const useProctoring = ({ attemptId, status, onTerminate, isPreviewMode }: UseProctoringProps) => {
   const attemptIdRef = useRef(attemptId);
   const statusRef = useRef(status);
 
@@ -19,6 +20,8 @@ export const useProctoring = ({ attemptId, status, onTerminate }: UseProctoringP
   }, [attemptId, status]);
 
   useEffect(() => {
+    if (isPreviewMode) return;
+
     const handleVisibilityChange = async () => {
       if (statusRef.current === 'completed' || statusRef.current === 'terminated') return;
       if (document.visibilityState === 'hidden') {
@@ -80,5 +83,5 @@ export const useProctoring = ({ attemptId, status, onTerminate }: UseProctoringP
       document.removeEventListener('paste', preventCopyPaste);
       document.removeEventListener('contextmenu', preventContextMenu);
     };
-  }, [attemptId, onTerminate]);
+  }, [attemptId, onTerminate, isPreviewMode]);
 };

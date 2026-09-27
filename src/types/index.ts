@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'admin' | 'student';
+export type UserRole = 'admin' | 'teacher' | 'student';
 
 export interface User {
   uid: string;
@@ -44,4 +44,5 @@ export interface Attempt {
   startedAt: Date | Timestamp;
   finishedAt?: Date | Timestamp;
   violationReason?: string;
+  isPreview?: boolean;
 }
