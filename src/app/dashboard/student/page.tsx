@@ -45,7 +45,7 @@ export default function StudentDashboard() {
                 <span>Time Limit: {exam.timeLimit} mins</span>
               </div>
               <Link
-                href={`/student/exam/${exam.id}`}
+                href={`/exam?id=${exam.id}`}
                 className="inline-block bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors w-full text-center"
               >
                 Start Exam
