@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useProctoring } from '@/hooks/useProctoring';
@@ -8,7 +9,9 @@ import { Exam, Question } from '@/types';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 
-export default function ExamTakingInterface({ params }: { params: { id: string } }) {
+export default function ExamTakingInterface() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get('id');
   const { user } = useAuth();
   const isPreviewMode = user?.role === 'admin' || user?.role === 'teacher';
   const [exam, setExam] = useState<Exam | null>(null);
@@ -27,8 +30,12 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
 
   useEffect(() => {
     const fetchExamDetails = async () => {
+      if (!id) {
+        setStatus('loading');
+        return;
+      }
       try {
-        const examDoc = await getDoc(doc(db, 'exams', params.id));
+        const examDoc = await getDoc(doc(db, 'exams', id));
         if (!examDoc.exists()) {
           toast.error('Exam not found');
           return;
@@ -41,7 +48,7 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
     };
 
     fetchExamDetails();
-  }, [params.id]);
+  }, [id]);
 
   const handleFinishExam = useCallback(async () => {
     if (!attemptId) return;
@@ -135,6 +142,7 @@ export default function ExamTakingInterface({ params }: { params: { id: string }
     }
   };
 
+  if (!id) return <div className="text-center mt-20">Exam not found</div>;
   if (status === 'loading') return <div className="text-center mt-20">Loading exam...</div>;
   if (status === 'terminated') return <div className="text-center mt-20 text-red-600 font-bold text-2xl">Exam Terminated</div>;
   if (status === 'completed') return <div className="text-center mt-20 text-green-600 font-bold text-2xl">Exam Completed Successfully!</div>;
