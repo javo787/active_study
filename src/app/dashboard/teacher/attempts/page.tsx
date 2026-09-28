@@ -4,7 +4,7 @@ import { useEffect, useState, Fragment } from 'react';
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Attempt, Question } from '@/types';
-import { toast, Toaster } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 
 function toDate(value: Date | { toDate: () => Date } | undefined | null): Date | null {
   if (!value) return null;
@@ -172,8 +172,6 @@ export default function AttemptsDashboard() {
           </tbody>
         </table>
       </div>
-
-      <Toaster position="bottom-right" />
     </div>
   );
 }

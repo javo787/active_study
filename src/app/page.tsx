@@ -1,13 +1,24 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { LogIn } from 'lucide-react';
+import InAppBrowserNotice from '@/components/InAppBrowserNotice';
 
 export default function LoginPage() {
   const { user, loading, signInWithGoogle } = useAuth();
   const router = useRouter();
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      await signInWithGoogle();
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && user) {
@@ -45,10 +56,16 @@ export default function LoginPage() {
             </p>
           </div>
 
+          <InAppBrowserNotice />
+
           <button
-            onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 focus:ring-4 focus:ring-slate-100 font-medium rounded-lg text-base px-5 py-3.5 transition-all duration-200"
+            onClick={handleLogin}
+            disabled={isLoggingIn}
+            className="w-full min-h-[48px] flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 focus:ring-4 focus:ring-slate-100 font-medium rounded-lg text-base px-5 py-3.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
+            {isLoggingIn ? (
+              <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></div>
+            ) : (
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -67,7 +84,8 @@ export default function LoginPage() {
                 fill="#EA4335"
               />
             </svg>
-            Continue with Google
+            )}
+            {isLoggingIn ? 'Signing in...' : 'Continue with Google'}
           </button>
         </div>
 

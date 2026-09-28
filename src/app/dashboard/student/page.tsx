@@ -46,7 +46,7 @@ export default function StudentDashboard() {
               </div>
               <Link
                 href={`/exam?id=${exam.id}`}
-                className="inline-block bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors w-full text-center"
+                className="inline-flex items-center justify-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors w-full text-center min-h-[44px]"
               >
                 Start Exam
               </Link>
