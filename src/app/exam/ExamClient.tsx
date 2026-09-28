@@ -2,108 +2,283 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp, updateDoc, query, where, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, setDoc, serverTimestamp, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useProctoring } from '@/hooks/useProctoring';
-import { Exam, Question } from '@/types';
+import { Exam, Question, Attempt } from '@/types';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { toMillis, formatClock } from '@/lib/time';
+import ProfileSetup from '@/components/ProfileSetup';
+import Link from 'next/link';
+
+// Mulberry32 PRNG
+function mulberry32(a: number) {
+  return function() {
+    let t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+
+function cyrb128(str: string) {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
+  for (let i = 0, k; i < str.length; i++) {
+    k = str.charCodeAt(i);
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  h1 ^= (h2 ^ h3 ^ h4); h2 ^= h1; h3 ^= h1; h4 ^= h1;
+  return [h1>>>0, h2>>>0, h3>>>0, h4>>>0];
+}
 
 export default function ExamTakingInterface() {
   const searchParams = useSearchParams();
   const id = searchParams.get('id');
-  const { user } = useAuth();
+  const { user, loading: authLoading, signInWithGoogle } = useAuth();
+
   const isPreviewMode = user?.role === 'admin' || user?.role === 'teacher';
   const [exam, setExam] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [deadline, setDeadline] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'in_progress' | 'terminated' | 'completed'>('loading');
+  const [status, setStatus] = useState<'loading' | 'ready' | 'in_progress' | 'terminated' | 'completed' | 'unavailable' | 'unauthorized'>('loading');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isStarting, setIsStarting] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'offline'>('saved');
+  const [showNavigator, setShowNavigator] = useState(false);
+  const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
 
-  const handleTerminate = useCallback(() => {
+  const handleTerminate = useCallback(async (reason: string) => {
     setStatus('terminated');
+    setErrorMsg(`Your attempt was stopped (${reason}). Ask your teacher to reset it.`);
   }, []);
 
-  useProctoring({ attemptId, status, onTerminate: handleTerminate, isPreviewMode });
+  useProctoring({
+    attemptId: attempt?.id || null,
+    status,
+    onTerminate: handleTerminate,
+    isPreviewMode,
+    onWarning: (count, max) => toast.error(`Warning ${count} of ${max} — leaving the exam page is recorded.`)
+  });
 
   useEffect(() => {
-    const fetchExamDetails = async () => {
+    if (authLoading) return;
+    if (!user) {
+      setStatus('unauthorized');
+      return;
+    }
+
+    if (user.role === 'student' && !user.fullName) {
+      return; // Handled by render
+    }
+
+    const loadExamAndAttempt = async () => {
       if (!id) {
-        setStatus('loading');
+        setErrorMsg('Invalid exam URL.');
+        setStatus('unavailable');
         return;
       }
+
       try {
         const examDoc = await getDoc(doc(db, 'exams', id));
         if (!examDoc.exists()) {
-          toast.error('Exam not found');
+          setErrorMsg('Exam not found.');
+          setStatus('unavailable');
           return;
         }
-        setExam({ id: examDoc.id, ...examDoc.data() } as Exam);
-        setStatus('ready');
+
+        const examData = { id: examDoc.id, ...examDoc.data() } as Exam;
+
+        if (!examData.isPublished) {
+          setErrorMsg('This exam is not published yet.');
+          setStatus('unavailable');
+          return;
+        }
+
+        const expMs = toMillis(examData.expiresAt);
+        if (expMs && expMs <= Date.now()) {
+          setErrorMsg('This exam has expired.');
+          setStatus('unavailable');
+          return;
+        }
+
+        setExam(examData);
+
+        if (isPreviewMode) {
+          setStatus('ready');
+          return;
+        }
+
+        const deterministicAttemptId = `${user.uid}_${id}`;
+        const attemptDoc = await getDoc(doc(db, 'attempts', deterministicAttemptId));
+
+        if (!attemptDoc.exists()) {
+          setStatus('ready');
+          return;
+        }
+
+        const attemptData = { id: attemptDoc.id, ...attemptDoc.data() } as Attempt;
+        setAttempt(attemptData);
+
+        if (attemptData.status === 'completed') {
+          setStatus('completed');
+          return;
+        }
+
+        if (attemptData.status === 'flagged') {
+          setStatus('terminated');
+          setErrorMsg(`Your attempt was stopped (${attemptData.violationReason || 'violation'}). Ask your teacher to reset it.`);
+          return;
+        }
+
+        if (attemptData.status === 'in_progress') {
+          const startedAtMs = toMillis(attemptData.startedAt) || Date.now();
+          const computedDeadline = startedAtMs + (examData.timeLimit * 60000);
+
+          const qSnapshot = await getDocs(collection(db, `exams/${examData.id}/variants/${attemptData.variantId}/questions`));
+          const loadedQuestions = qSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
+          let finalQuestions = [...loadedQuestions];
+          if (examData.shuffleQuestions && attemptData.seed !== undefined) {
+            const rand = mulberry32(attemptData.seed);
+            for (let i = finalQuestions.length - 1; i > 0; i--) {
+              const j = Math.floor(rand() * (i + 1));
+              [finalQuestions[i], finalQuestions[j]] = [finalQuestions[j], finalQuestions[i]];
+            }
+          }
+
+          if (examData.shuffleOptions && attemptData.seed !== undefined) {
+            finalQuestions = finalQuestions.map(q => {
+              const qHash = cyrb128(q.id)[0];
+              const combinedSeed = attemptData.seed! ^ qHash;
+              const rand = mulberry32(combinedSeed);
+
+              const displayIndices = q.options.map((_, i) => i);
+              for (let i = displayIndices.length - 1; i > 0; i--) {
+                const j = Math.floor(rand() * (i + 1));
+                [displayIndices[i], displayIndices[j]] = [displayIndices[j], displayIndices[i]];
+              }
+              return { ...q, displayIndices };
+            });
+          }
+
+          setQuestions(finalQuestions);
+          setAnswers(attemptData.answers || {});
+
+          if (Date.now() >= computedDeadline) {
+             const finalScore = loadedQuestions.filter(q => attemptData.answers[q.id] === q.correctOption).length;
+             await updateDoc(doc(db, 'attempts', deterministicAttemptId), {
+                status: 'completed',
+                finishedAt: Timestamp.fromMillis(computedDeadline),
+                score: finalScore,
+                totalQuestions: loadedQuestions.length
+             });
+             setAttempt(prev => prev ? {...prev, status: 'completed', score: finalScore, totalQuestions: loadedQuestions.length} : null);
+             setStatus('completed');
+             return;
+          }
+
+          setDeadline(computedDeadline);
+          setStatus('in_progress');
+        }
+
       } catch (error) {
-        console.error('Error fetching exam:', error);
+        console.error('Error fetching exam/attempt:', error);
+        setErrorMsg('Failed to load exam data.');
+        setStatus('unavailable');
       }
     };
 
-    fetchExamDetails();
-  }, [id]);
+    loadExamAndAttempt();
+  }, [id, user, authLoading, isPreviewMode]);
 
   const handleFinishExam = useCallback(async () => {
-    if (!attemptId) return;
+    if (!attempt || !exam) return;
 
     try {
       const score = questions.filter(q => answers[q.id] === q.correctOption).length;
 
-      await updateDoc(doc(db, 'attempts', attemptId), {
-        status: 'completed',
-        finishedAt: serverTimestamp(),
-        score,
-        totalQuestions: questions.length,
-      });
+      if (!isPreviewMode) {
+        await updateDoc(doc(db, 'attempts', attempt.id), {
+          status: 'completed',
+          finishedAt: serverTimestamp(),
+          score,
+          totalQuestions: questions.length,
+        });
+      }
+      setAttempt(prev => prev ? {...prev, status: 'completed', score, totalQuestions: questions.length} : null);
       setStatus('completed');
-
-      const header = document.getElementById('student-header');
-      if (header) header.style.display = 'block';
 
     } catch (err) {
       console.error(err);
       toast.error('Failed to submit exam');
     }
-  }, [attemptId, questions, answers]);
+  }, [attempt, questions, answers, exam, isPreviewMode]);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (status === 'in_progress' && timeLeft !== null && timeLeft > 0) {
-      timer = setTimeout(() => setTimeLeft(prev => prev! - 1), 1000);
-    } else if (status === 'in_progress' && timeLeft === 0) {
-      handleFinishExam();
-    }
-    return () => clearTimeout(timer);
-  }, [status, timeLeft, handleFinishExam]);
+    if (status !== 'in_progress' || !deadline) return;
 
-  const handleStartExam = async () => {
-    if (!exam) return;
+    let hasToasted5 = false;
+    let hasToasted1 = false;
 
-    try {
-      if (!isPreviewMode) {
-        const prevQ = query(
-          collection(db, 'attempts'),
-          where('studentId', '==', user?.uid),
-          where('examId', '==', exam.id),
-          where('status', '==', 'completed')
-        );
-        const prevSnap = await getDocs(prevQ);
-        if (!prevSnap.empty) {
-          toast.error('You have already completed this exam.');
-          return;
+    const updateTimer = () => {
+      const now = Date.now();
+      const remaining = deadline - now;
+
+      if (remaining <= 0) {
+        setTimeLeft(0);
+        handleFinishExam();
+      } else {
+        setTimeLeft(remaining);
+
+        const minLeft = remaining / 60000;
+        if (minLeft <= 5 && minLeft > 4.9 && !hasToasted5) {
+           toast('5 minutes remaining', { icon: '⚠️' });
+           hasToasted5 = true;
+        }
+        if (minLeft <= 1 && minLeft > 0.9 && !hasToasted1) {
+           toast.error('1 minute remaining!');
+           hasToasted1 = true;
         }
       }
+    };
 
+    updateTimer();
+    const intervalId = setInterval(updateTimer, 500);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') updateTimer();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [status, deadline, handleFinishExam]);
+
+  const handleStartExam = async () => {
+    if (!exam || !user) return;
+    setIsStarting(true);
+
+    try {
       const variantsSnapshot = await getDocs(collection(db, `exams/${exam.id}/variants`));
       if (variantsSnapshot.empty) {
-        toast.error('No variants found for this exam.');
+        toast.error('No questions found for this exam.');
+        setIsStarting(false);
         return;
       }
 
@@ -112,153 +287,485 @@ export default function ExamTakingInterface() {
       const variantId = randomVariant.id;
 
       const qSnapshot = await getDocs(collection(db, `exams/${exam.id}/variants/${variantId}/questions`));
-      const loadedQuestions = qSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
-      setQuestions(loadedQuestions);
+      if (qSnapshot.empty) {
+        toast.error('No questions in this variant.');
+        setIsStarting(false);
+        return;
+      }
 
-      const attemptRef = await addDoc(collection(db, 'attempts'), {
-        studentId: user?.uid || 'anonymous',
-        studentName: user?.displayName || user?.email || 'Unknown',
+      const loadedQuestions = qSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
+
+      const seed = Math.floor(Math.random() * 4294967296);
+
+      let finalQuestions = [...loadedQuestions];
+      if (exam.shuffleQuestions) {
+        const rand = mulberry32(seed);
+        for (let i = finalQuestions.length - 1; i > 0; i--) {
+          const j = Math.floor(rand() * (i + 1));
+          [finalQuestions[i], finalQuestions[j]] = [finalQuestions[j], finalQuestions[i]];
+        }
+      }
+
+      if (exam.shuffleOptions) {
+        finalQuestions = finalQuestions.map(q => {
+          const qHash = cyrb128(q.id)[0];
+          const combinedSeed = seed ^ qHash;
+          const rand = mulberry32(combinedSeed);
+
+          const displayIndices = q.options.map((_, i) => i);
+          for (let i = displayIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            [displayIndices[i], displayIndices[j]] = [displayIndices[j], displayIndices[i]];
+          }
+          return { ...q, displayIndices };
+        });
+      }
+
+      setQuestions(finalQuestions);
+
+      if (isPreviewMode) {
+        setDeadline(Date.now() + (exam.timeLimit * 60000));
+        setStatus('in_progress');
+        setIsStarting(false);
+        return;
+      }
+
+      const deterministicAttemptId = `${user.uid}_${exam.id}`;
+
+      const attemptData = {
+        studentId: user.uid,
+        studentName: user.fullName || user.displayName || user.email,
+        studentEmail: user.email,
+        studentGroup: user.group || '',
+        teacherId: exam.createdBy || null,
         examId: exam.id,
         examTitle: exam.title,
         variantId: variantId,
+        passingPercent: exam.passingPercent ?? null,
         answers: {},
         status: 'in_progress',
         startedAt: serverTimestamp(),
-        expiresAt: Timestamp.fromDate(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)),
-        isPreview: isPreviewMode,
-      });
+        expiresAt: Timestamp.fromMillis(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        seed,
+        violationCount: 0,
+        isPreview: false,
+      };
 
-      setAttemptId(attemptRef.id);
-      setTimeLeft(exam.timeLimit * 60);
+      await setDoc(doc(db, 'attempts', deterministicAttemptId), attemptData);
+
+      const savedDoc = await getDoc(doc(db, 'attempts', deterministicAttemptId));
+      const savedData = { id: savedDoc.id, ...savedDoc.data() } as Attempt;
+
+      setAttempt(savedData);
+      const startedAtMs = toMillis(savedData.startedAt) || Date.now();
+      setDeadline(startedAtMs + (exam.timeLimit * 60000));
       setStatus('in_progress');
-      toast.success('Exam started. Do not switch tabs or copy/paste.', { duration: 5000 });
-
-      const header = document.getElementById('student-header');
-      if (header) header.style.display = 'none';
 
     } catch (err) {
       console.error(err);
       toast.error('Failed to start exam');
+    } finally {
+      setIsStarting(false);
     }
   };
 
-  const handleSelectOption = async (questionId: string, optionIndex: number) => {
-    if (!attemptId || status !== 'in_progress') return;
+  const handleSelectOption = async (questionId: string, originalOptionIndex: number) => {
+    if (!attempt || status !== 'in_progress') return;
 
-    const newAnswers = { ...answers, [questionId]: optionIndex };
+    const newAnswers = { ...answers, [questionId]: originalOptionIndex };
     setAnswers(newAnswers);
 
-    try {
-      await updateDoc(doc(db, 'attempts', attemptId), {
-        answers: newAnswers
-      });
-    } catch (error) {
-      console.error('Failed to save answer:', error);
-      toast.error('Failed to save answer');
-    }
+    if (isPreviewMode) return;
+
+    setSaveStatus('saving');
+    let retryCount = 0;
+    const maxRetries = 4;
+    const baseDelay = 2000;
+
+    const saveWithRetry = async () => {
+      try {
+        await updateDoc(doc(db, 'attempts', attempt.id), {
+          [`answers.${questionId}`]: originalOptionIndex
+        });
+        setSaveStatus('saved');
+      } catch (error) {
+        console.error('Failed to save answer:', error);
+        if (retryCount < maxRetries) {
+          retryCount++;
+          const delay = baseDelay * Math.pow(2, retryCount - 1);
+          setTimeout(saveWithRetry, delay);
+        } else {
+          setSaveStatus('offline');
+        }
+      }
+    };
+
+    saveWithRetry();
   };
 
-  if (!id) return <div className="text-center mt-20">Exam not found</div>;
-  if (status === 'loading') return <div className="text-center mt-20">Loading exam...</div>;
-  if (status === 'terminated') return <div className="text-center mt-20 text-red-600 font-bold text-2xl">Exam Terminated</div>;
-  if (status === 'completed') return <div className="text-center mt-20 text-green-600 font-bold text-2xl">Exam Completed Successfully!</div>;
+  useEffect(() => {
+    const handleOnline = () => {
+      if (saveStatus === 'offline' && attempt && !isPreviewMode) {
+        setSaveStatus('saving');
+        updateDoc(doc(db, 'attempts', attempt.id), { answers })
+          .then(() => setSaveStatus('saved'))
+          .catch(() => setSaveStatus('offline'));
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [saveStatus, attempt, answers, isPreviewMode]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (status === 'in_progress' && !isPreviewMode) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [status, isPreviewMode]);
+
+  if (authLoading || status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50">Loading exam...</div>;
+  }
+
+  if (status === 'unauthorized') {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as { MSStream: unknown }).MSStream;
+    const isAndroid = /Android/.test(navigator.userAgent);
+    const isApp = isIOS || isAndroid; // simplified check
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] p-4">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+          <h2 className="text-2xl font-bold text-slate-800 mb-4">Sign In Required</h2>
+          <p className="text-slate-600 mb-6">You must be signed in to open this exam.</p>
+          {isApp && (
+            <div className="mb-6 p-4 bg-amber-50 text-amber-800 rounded-md text-sm text-left">
+              <strong>Notice:</strong> If you are opening this link from inside another app (like Messenger or Instagram), Google Sign-In might be blocked. Please open this link in your system browser (Safari or Chrome).
+            </div>
+          )}
+          <button onClick={signInWithGoogle} className="w-full bg-blue-600 text-white py-3 px-4 rounded-md font-semibold min-h-[44px]">
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (user?.role === 'student' && !user.fullName) {
+    return <ProfileSetup />;
+  }
+
+  if (status === 'unavailable' || status === 'terminated') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] p-4">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+          <h2 className={`text-2xl font-bold mb-4 ${status === 'terminated' ? 'text-red-600' : 'text-slate-800'}`}>
+            {status === 'terminated' ? 'Exam Stopped' : 'Exam Unavailable'}
+          </h2>
+          <p className="text-slate-600 mb-8">{errorMsg}</p>
+          <Link href="/dashboard/student" className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md font-medium min-h-[44px]">
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'completed') {
+     const percent = attempt && attempt.totalQuestions ? Math.round((attempt.score! / attempt.totalQuestions) * 100) : 0;
+     const passed = exam?.passingPercent !== null && exam?.passingPercent !== undefined ? percent >= exam.passingPercent : null;
+     const timeTakenMs = attempt?.finishedAt && attempt?.startedAt ? toMillis(attempt.finishedAt)! - toMillis(attempt.startedAt)! : 0;
+     const timeTakenStr = Math.floor(timeTakenMs / 60000) > 0 ? `${Math.floor(timeTakenMs / 60000)}m ${Math.floor((timeTakenMs % 60000) / 1000)}s` : `${Math.floor((timeTakenMs % 60000) / 1000)}s`;
+
+     return (
+       <div className="flex flex-col items-center justify-center min-h-[50vh] p-4">
+         <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+           <h2 className="text-2xl font-bold text-slate-800 mb-6">Exam Completed</h2>
+
+           <div className="text-5xl font-extrabold text-blue-600 mb-2">{percent}%</div>
+           <p className="text-lg text-slate-600 mb-4">{attempt?.score} of {attempt?.totalQuestions} correct</p>
+
+           {passed !== null && (
+              <div className="mb-6">
+                 <span className={`inline-block px-4 py-2 rounded-full text-lg font-bold ${passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {passed ? 'PASSED' : 'FAILED'}
+                 </span>
+              </div>
+           )}
+
+           <p className="text-sm text-slate-500 mb-8">Time taken: {timeTakenStr}</p>
+
+           <div className="space-y-3">
+             {exam?.showAnswers ? (
+               <p className="text-sm text-slate-500 italic">Review answers coming soon...</p>
+             ) : (
+               <p className="text-sm text-slate-500 italic mb-4">Answer review is disabled by your teacher.</p>
+             )}
+             <Link href="/dashboard/student" className="block w-full py-3 px-4 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-md font-medium transition-colors">
+               Back to Dashboard
+             </Link>
+           </div>
+         </div>
+       </div>
+     );
+  }
 
   if (status === 'ready') {
     return (
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-sm border border-slate-200 mt-10">
-        <h2 className="text-2xl font-bold text-slate-800 mb-4">{exam?.title}</h2>
-        <p className="text-slate-600 mb-6">{exam?.description}</p>
-        <ul className="mb-8 space-y-2 text-slate-700">
-          <li><strong>Time Limit:</strong> {exam?.timeLimit} minutes</li>
-          {!isPreviewMode && (
-             <li className="text-red-500 mt-4"><strong>Warning:</strong> Switching tabs or losing window focus will terminate the exam. Right-click and Copy/Paste are disabled.</li>
-          )}
-          {isPreviewMode && (
-             <li className="text-blue-500 mt-4"><strong>Preview Mode Active:</strong> Proctoring is bypassed and correct answers are highlighted. This attempt will not affect statistics.</li>
-          )}
-        </ul>
+        <div className="flex items-center mb-6">
+           <Link href="/dashboard/student" className="text-blue-600 hover:underline mr-4 text-sm font-medium">&larr; Dashboard</Link>
+           <h2 className="text-2xl font-bold text-slate-800 flex-1">{exam?.title}</h2>
+        </div>
+
+        <p className="text-slate-600 mb-6 whitespace-pre-wrap">{exam?.description}</p>
+
+        <div className="bg-slate-50 p-6 rounded-md mb-8 border border-slate-100">
+           <h3 className="font-semibold text-slate-800 mb-4">Exam Details & Rules</h3>
+           <ul className="space-y-3 text-sm text-slate-700 list-disc pl-5">
+             <li><strong>Time Limit:</strong> {exam?.timeLimit} minutes</li>
+             <li><strong>Passing Score:</strong> {exam?.passingPercent ? `${exam.passingPercent}%` : 'None'}</li>
+             <li><strong>Questions:</strong> Will be displayed one at a time.</li>
+             {!isPreviewMode ? (
+                <>
+                  <li><strong>Focus:</strong> Switching tabs or losing window focus will result in a warning. 3 warnings will terminate the exam.</li>
+                  <li><strong>Security:</strong> Right-click and Copy/Paste are disabled.</li>
+                  <li><strong>Connectivity:</strong> Your progress is saved automatically. If you lose connection, do not refresh—wait for it to reconnect.</li>
+                </>
+             ) : (
+                <li className="text-blue-600 font-medium bg-blue-50 p-2 rounded -ml-5 pl-5 list-none">Preview Mode Active: Proctoring is bypassed and correct answers are highlighted. This attempt will not affect statistics.</li>
+             )}
+           </ul>
+        </div>
+
         <button
           onClick={handleStartExam}
-          className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-semibold"
+          disabled={isStarting}
+          className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-semibold min-h-[44px] disabled:opacity-50"
         >
-          I understand, Start Exam
+          {isStarting ? 'Preparing Exam...' : 'Start Exam'}
         </button>
       </div>
     );
   }
 
-  const currentQ = questions[currentQuestionIndex];
+  const currentQ = questions[currentQuestionIndex] as Question & { displayIndices?: number[] };
+  const displayOptions = currentQ?.displayIndices || currentQ?.options?.map((_, i) => i) || [];
+  const answeredCount = Object.keys(answers).length;
+  const isLastQuestion = currentQuestionIndex === questions.length - 1;
+
+  const handleNextClick = () => {
+    if (isLastQuestion) {
+      setShowConfirmSubmit(true);
+    } else {
+      setCurrentQuestionIndex(prev => prev + 1);
+    }
+  };
 
   return (
-    <div className="max-w-3xl mx-auto mt-4 select-none">
-      <div className="flex justify-between items-center bg-white p-4 rounded-t-lg border-b border-slate-200 shadow-sm">
-        <div className="font-semibold text-slate-700">
-          Question {currentQuestionIndex + 1} of {questions.length}
+    <div className="flex flex-col h-[100dvh] bg-slate-50 select-none" style={{ WebkitTouchCallout: 'none' }}>
+      {/* Sticky Top Bar */}
+      <header className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="font-semibold text-slate-800 bg-slate-100 px-3 py-1 rounded-full text-sm">
+            Q {currentQuestionIndex + 1}/{questions.length}
+          </div>
+          {!isPreviewMode && (
+            <div className="text-xs font-medium flex items-center gap-1">
+              {saveStatus === 'saved' && <span className="text-green-600">Saved</span>}
+              {saveStatus === 'saving' && <span className="text-amber-500">Saving...</span>}
+              {saveStatus === 'offline' && <span className="text-red-500">Offline</span>}
+            </div>
+          )}
         </div>
-        <div className="font-bold text-slate-800 text-xl">
-          {Math.floor(timeLeft! / 60)}:{(timeLeft! % 60).toString().padStart(2, '0')}
+        <div className={`font-bold text-xl tabular-nums ${timeLeft !== null && timeLeft <= 60000 ? 'text-red-600 animate-pulse' : timeLeft !== null && timeLeft <= 300000 ? 'text-amber-500' : 'text-slate-800'}`}>
+          {timeLeft !== null ? formatClock(Math.floor(timeLeft / 1000)) : '--:--'}
         </div>
+      </header>
+
+      {/* Progress Bar */}
+      <div className="h-1 bg-slate-200 w-full relative z-20">
+        <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(answeredCount / questions.length) * 100}%` }} />
       </div>
 
-      <div className="bg-white p-8 rounded-b-lg shadow-sm mb-6 min-h-[300px]">
-        <h3 className="text-xl font-medium text-slate-800 mb-6">{currentQ?.text}</h3>
+      {isPreviewMode && (
+        <div className="bg-blue-600 text-white text-center text-xs py-1 font-medium relative z-20">
+          PREVIEW MODE — Answers highlighted
+        </div>
+      )}
 
-        <div className="space-y-3">
-          {currentQ?.options.map((option, index) => {
-            const isSelected = answers[currentQ.id] === index;
-            const isCorrectHighlight = isPreviewMode && currentQ.correctOption === index;
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto px-4 py-6 pb-32">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="text-lg md:text-xl font-medium text-slate-800 mb-8 leading-relaxed">{currentQ?.text}</h3>
 
-            return (
-              <label
-                key={index}
-                className={`flex items-center p-4 border rounded-md cursor-pointer transition-colors ${
-                  isCorrectHighlight ? 'border-green-500 bg-green-50 ring-2 ring-green-200' :
-                  isSelected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
-                }`}
+            <div className="space-y-3">
+              {displayOptions.map((originalIndex, displayIndex) => {
+                const optionText = currentQ?.options[originalIndex];
+                const isSelected = answers[currentQ.id] === originalIndex;
+                const isCorrectHighlight = isPreviewMode && currentQ.correctOption === originalIndex;
+                const letter = String.fromCharCode(65 + displayIndex);
+
+                return (
+                  <label
+                    key={originalIndex}
+                    className={`flex items-center p-4 border rounded-lg cursor-pointer transition-all min-h-[56px] ${
+                      isCorrectHighlight ? 'border-green-500 bg-green-50 ring-2 ring-green-200' :
+                      isSelected ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold mr-4 ${
+                       isCorrectHighlight ? 'bg-green-200 text-green-800' :
+                       isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                    }`}>
+                      {letter}
+                    </div>
+                    <input
+                      type="radio"
+                      name={currentQ.id}
+                      value={originalIndex}
+                      checked={isSelected}
+                      onChange={() => handleSelectOption(currentQ.id, originalIndex)}
+                      className="sr-only"
+                    />
+                    <span className={`text-base flex-1 ${isSelected ? 'font-medium text-slate-900' : 'text-slate-700'}`}>
+                      {optionText}
+                    </span>
+                    {isCorrectHighlight && (
+                      <span className="ml-2 text-green-600 font-bold text-xs bg-green-100 px-2 py-1 rounded tracking-wide uppercase">Correct</span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Fixed Bottom Bar */}
+      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 pb-[env(safe-area-inset-bottom)] z-30 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
+        <div className="max-w-2xl mx-auto flex justify-between items-center gap-4">
+          <button
+            disabled={currentQuestionIndex === 0}
+            onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
+            className="flex-1 py-3 px-4 bg-slate-100 text-slate-700 font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-200 transition-colors min-h-[48px]"
+          >
+            Previous
+          </button>
+
+          <button
+            onClick={() => setShowNavigator(true)}
+            className="py-3 px-4 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors min-h-[48px] flex items-center justify-center flex-shrink-0"
+            aria-label="Open navigator"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+          </button>
+
+          <button
+            onClick={handleNextClick}
+            className={`flex-1 py-3 px-4 font-medium rounded-lg transition-colors min-h-[48px] ${
+              isLastQuestion
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            {isLastQuestion ? 'Finish Exam' : 'Next'}
+          </button>
+        </div>
+      </footer>
+
+      {/* Navigator Bottom Sheet */}
+      {showNavigator && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setShowNavigator(false)}>
+          <div
+            className="bg-white w-full sm:w-[500px] sm:rounded-2xl rounded-t-2xl p-6 pb-12 sm:pb-6 shadow-2xl transition-transform animate-in slide-in-from-bottom"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-slate-800">Question Navigator</h3>
+              <button onClick={() => setShowNavigator(false)} className="p-2 -mr-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 sm:grid-cols-7 gap-3 mb-8 max-h-[50vh] overflow-y-auto p-1">
+              {questions.map((q, idx) => {
+                const isAnswered = answers[q.id] !== undefined;
+                const isCurrent = idx === currentQuestionIndex;
+
+                return (
+                  <button
+                    key={q.id}
+                    onClick={() => {
+                      setCurrentQuestionIndex(idx);
+                      setShowNavigator(false);
+                    }}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center text-sm font-semibold transition-all ${
+                      isCurrent ? 'ring-4 ring-blue-200 ring-offset-1 bg-blue-600 text-white' :
+                      isAnswered ? 'bg-slate-800 text-white' : 'bg-white border-2 border-slate-300 text-slate-600 hover:border-slate-400'
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex gap-4 items-center justify-between border-t border-slate-100 pt-6">
+              <div className="text-sm text-slate-600 font-medium">
+                <span className="text-slate-900">{answeredCount}</span> answered, {questions.length - answeredCount} remaining
+              </div>
+              <button
+                onClick={() => {
+                  setShowNavigator(false);
+                  setShowConfirmSubmit(true);
+                }}
+                className="px-6 py-3 bg-slate-900 text-white rounded-lg font-semibold hover:bg-slate-800 transition-colors"
               >
-                <input
-                  type="radio"
-                  name={currentQ.id}
-                  value={index}
-                  checked={isSelected}
-                  onChange={() => handleSelectOption(currentQ.id, index)}
-                  className={`w-4 h-4 ${isCorrectHighlight ? 'text-green-600' : 'text-blue-600'}`}
-                />
-                <span className="ml-3 text-slate-700 flex-1">{option}</span>
-                {isCorrectHighlight && (
-                  <span className="ml-2 text-green-600 font-bold text-sm bg-green-100 px-2 py-1 rounded">Correct</span>
-                )}
-              </label>
-            );
-          })}
+                Submit Exam
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="flex justify-between">
-        <button
-          disabled={currentQuestionIndex === 0}
-          onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
-          className="px-6 py-2 bg-slate-200 text-slate-700 rounded-md disabled:opacity-50"
-        >
-          Previous
-        </button>
-
-        {currentQuestionIndex === questions.length - 1 ? (
-          <button
-            onClick={handleFinishExam}
-            className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-          >
-            Finish Exam
-          </button>
-        ) : (
-          <button
-            onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Next
-          </button>
-        )}
-      </div>
+      {/* Confirm Submit Dialog */}
+      {showConfirmSubmit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+           <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
+             <h3 className="text-2xl font-bold text-slate-800 mb-3">Submit Exam?</h3>
+             <p className="text-slate-600 mb-6">
+               You have answered <strong className="text-slate-900">{answeredCount}</strong> of <strong className="text-slate-900">{questions.length}</strong> questions.
+               {questions.length - answeredCount > 0 && (
+                 <span className="block mt-2 text-amber-600 font-medium">
+                   ⚠️ You have {questions.length - answeredCount} unanswered questions.
+                 </span>
+               )}
+             </p>
+             <div className="flex flex-col gap-3">
+               <button
+                 onClick={() => {
+                   setShowConfirmSubmit(false);
+                   handleFinishExam();
+                 }}
+                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors"
+               >
+                 Yes, Submit Now
+               </button>
+               <button
+                 onClick={() => setShowConfirmSubmit(false)}
+                 className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors"
+               >
+                 Go Back
+               </button>
+             </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 }

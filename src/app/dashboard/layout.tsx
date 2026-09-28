@@ -1,10 +1,11 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { useEffect } from 'react';
+import { NAV_ITEMS, getPageTitle } from '@/lib/nav';
+import ProfileSetup from '@/components/ProfileSetup';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, loading, signOut } = useAuth();
@@ -29,6 +30,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-50">Loading...</div>;
   }
 
+  const navItems = NAV_ITEMS[user.role as keyof typeof NAV_ITEMS] || [];
+  const needsProfileSetup = user.role === 'student' && !user.fullName;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Sidebar */}
@@ -38,23 +42,19 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <p className="text-sm text-slate-500 mt-1 capitalize">{user.role} Portal</p>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
-          {user.role === 'admin' && (
-            <>
-              <Link href="/dashboard/admin" className={`block px-4 py-2 rounded-md ${pathname === '/dashboard/admin' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white transition-colors'}`}>Admin Dashboard</Link>
-              <Link href="/dashboard/teacher" className={`block px-4 py-2 rounded-md ${pathname.startsWith('/dashboard/teacher') ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white transition-colors'}`}>Teacher Tools</Link>
-            </>
-          )}
-          {user.role === 'teacher' && (
-            <>
-              <Link href="/dashboard/teacher" className={`block px-4 py-2 rounded-md ${pathname === '/dashboard/teacher' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white transition-colors'}`}>Teacher Dashboard</Link>
-              <Link href="/dashboard/teacher/importer" className={`block px-4 py-2 rounded-md ${pathname === '/dashboard/teacher/importer' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white transition-colors'}`}>Custom Importer</Link>
-            </>
-          )}
-          {user.role === 'student' && (
-            <>
-              <Link href="/dashboard/student" className={`block px-4 py-2 rounded-md ${pathname === '/dashboard/student' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white transition-colors'}`}>Student Dashboard</Link>
-            </>
-          )}
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`block px-4 py-3 min-h-[44px] rounded-md ${
+                (pathname === item.href)
+                  ? 'bg-blue-600 text-white'
+                  : 'hover:bg-slate-800 hover:text-white transition-colors'
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
         <div className="p-4 border-t border-slate-800">
             <div className="mb-4 px-2">
@@ -69,13 +69,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white shadow-sm px-6 py-4 border-b border-slate-200 sticky top-0 z-10 flex items-center justify-between">
-             <h2 className="text-lg font-semibold text-slate-800 capitalize">
-                {pathname.split('/').pop()?.replace('-', ' ') || 'Dashboard'}
+        <header className="bg-white shadow-sm px-6 py-4 min-h-[60px] border-b border-slate-200 sticky top-0 z-10 flex items-center justify-between">
+             <h2 className="text-lg font-semibold text-slate-800">
+                {getPageTitle(pathname)}
              </h2>
         </header>
-        <div className="flex-1 p-6 overflow-y-auto">
-          {children}
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+          {needsProfileSetup ? <ProfileSetup /> : children}
         </div>
       </main>
     </div>
