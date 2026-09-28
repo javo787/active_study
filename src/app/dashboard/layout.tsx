@@ -5,7 +5,7 @@ import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { NAV_ITEMS, getPageTitle } from '@/lib/nav';
+import { NAV_ITEMS, ADMIN_LINKS, getPageTitle, isNavActive } from '@/lib/nav';
 import ProfileSetup from '@/components/ProfileSetup';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -40,8 +40,35 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         setDrawerOpen(false);
       }
     };
+    const handleTab = (e: KeyboardEvent) => {
+      if (!drawerOpen || !drawerRef.current) return;
+      if (e.key !== 'Tab') return;
+
+      const focusableElements = drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]'
+      );
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstElement) {
+          lastElement.focus();
+          e.preventDefault();
+        }
+      } else {
+        if (document.activeElement === lastElement) {
+          firstElement.focus();
+          e.preventDefault();
+        }
+      }
+    };
+
     document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleTab);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleTab);
+    };
   }, [drawerOpen]);
 
   useEffect(() => {
@@ -140,20 +167,43 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
              </button>
            </div>
 
-           <nav className="flex-1 px-4 py-6 space-y-2">
+           <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
           {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setDrawerOpen(false)}
-              className={`block px-4 py-3 min-h-[44px] rounded-md ${
-                (pathname === item.href)
-                  ? 'bg-blue-600 text-white'
-                  : 'hover:bg-slate-800 hover:text-white transition-colors'
-              }`}
-            >
-              {item.label}
-            </Link>
+            <div key={item.href}>
+              <Link
+                href={item.href}
+                onClick={() => setDrawerOpen(false)}
+                className={`block px-4 py-3 min-h-[44px] rounded-md ${
+                  isNavActive(pathname, item.href)
+                    ? 'bg-blue-600 text-white'
+                    : 'hover:bg-slate-800 hover:text-white transition-colors'
+                }`}
+              >
+                {item.label}
+              </Link>
+              {item.label === 'Admin Dashboard' && user.role === 'admin' && (
+                <div className="mt-2 ml-4 pl-4 border-l border-slate-700 space-y-1">
+                  {ADMIN_LINKS.map(adminLink => {
+                    const Icon = adminLink.icon;
+                    return (
+                      <Link
+                        key={adminLink.href}
+                        href={adminLink.href}
+                        onClick={() => setDrawerOpen(false)}
+                        className={`flex items-center gap-3 px-4 py-2 min-h-[44px] rounded-md text-sm ${
+                          isNavActive(pathname, adminLink.href)
+                            ? 'bg-slate-800 text-white font-medium'
+                            : 'text-slate-400 hover:bg-slate-800 hover:text-white transition-colors'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        {adminLink.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           ))}
            </nav>
 
@@ -181,7 +231,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               key={item.href}
               href={item.href}
               className={`block px-4 py-3 min-h-[44px] rounded-md ${
-                (pathname === item.href)
+                isNavActive(pathname, item.href)
                   ? 'bg-blue-600 text-white'
                   : 'hover:bg-slate-800 hover:text-white transition-colors'
               }`}
@@ -203,7 +253,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white shadow-sm px-6 py-4 min-h-[60px] border-b border-slate-200 sticky top-0 z-10 flex items-center justify-between">
+        <header className="bg-white shadow-sm px-6 py-4 min-h-[60px] border-b border-slate-200 sticky top-0 z-10 hidden md:flex items-center justify-between">
              <h2 className="text-lg font-semibold text-slate-800">
                 {getPageTitle(pathname)}
              </h2>

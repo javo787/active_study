@@ -8,6 +8,22 @@ export function expiryFromNow(days: number): Timestamp {
   return Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000));
 }
 
+export async function validateExamForPublish(examId: string): Promise<string | null> {
+  const variantsSnap = await getDocs(collection(db, `exams/${examId}/variants`));
+  if (variantsSnap.empty) {
+    return 'Exam needs at least 1 variant.';
+  }
+
+  for (const vDoc of variantsSnap.docs) {
+    const qSnap = await getDocs(collection(db, `exams/${examId}/variants/${vDoc.id}/questions`));
+    if (qSnap.empty) {
+      return `Variant ${vDoc.id} has no questions.`;
+    }
+  }
+
+  return null;
+}
+
 type BatchOperation = (batch: WriteBatch) => void;
 
 export async function commitInChunks(ops: BatchOperation[]) {

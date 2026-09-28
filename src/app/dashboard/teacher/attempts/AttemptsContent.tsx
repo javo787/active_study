@@ -233,6 +233,14 @@ export function AttemptsContent() {
     const BOM = '\uFEFF';
     const header = ['Student', 'Email', 'Group', 'Exam', 'Score', 'Total', 'Percent', 'Time', 'Status', 'Warnings', 'Started'].join(';');
 
+    const escapeCell = (value: string | number) => {
+      let strValue = String(value);
+      if (/^[=+\-@\t\r]/.test(strValue)) {
+        strValue = "'" + strValue;
+      }
+      return `"${strValue.replace(/"/g, '""')}"`;
+    };
+
     const rows = filteredAttempts.map(a => {
       const started = toDate(a.startedAt);
       const score = a.score !== undefined ? a.score : '';
@@ -241,18 +249,18 @@ export function AttemptsContent() {
       const time = formatDuration(a.startedAt, a.finishedAt);
 
       return [
-        `"${(a.studentName || '').replace(/"/g, '""')}"`,
-        `"${(a.studentEmail || '').replace(/"/g, '""')}"`,
-        `"${(a.studentGroup || '').replace(/"/g, '""')}"`,
-        `"${(a.examTitle || a.examId).replace(/"/g, '""')}"`,
+        a.studentName || 'Unknown',
+        a.studentEmail || '',
+        a.studentGroup || '',
+        a.examTitle || a.examId,
         score,
         total,
-        `"${percent}"`,
-        `"${time}"`,
+        percent,
+        time,
         a.status,
         a.violationCount || 0,
-        `"${started ? format(started, 'dd.MM.yyyy HH:mm') : ''}"`
-      ].join(';');
+        started ? format(started, 'dd.MM.yyyy HH:mm') : ''
+      ].map(escapeCell).join(';');
     });
 
     const csvContent = BOM + [header, ...rows].join('\n');

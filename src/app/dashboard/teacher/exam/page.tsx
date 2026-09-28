@@ -7,9 +7,9 @@ import { db } from '@/lib/firebase';
 import { Exam, Question } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
-import { deleteExamCascade, duplicateExam } from '@/lib/examOps';
+import { deleteExamCascade, duplicateExam, validateExamForPublish } from '@/lib/examOps';
 import Link from 'next/link';
-import { Copy, Save, Share2, Plus, Trash2, Play, AlertCircle } from 'lucide-react';
+import { Copy, Save, Share2, Plus, Trash2, Play, AlertCircle, Edit } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 function ExamManager() {
@@ -100,12 +100,16 @@ function ExamManager() {
           .map(d => d.data())
           .filter(a => !a.isPreview && (!a.expiresAt || ('toDate' in a.expiresAt ? a.expiresAt.toDate() : a.expiresAt) > new Date()));
 
-        let completed = 0, inProgress = 0, flagged = 0, totalScore = 0;
+        let completed = 0, inProgress = 0, flagged = 0, sumPercents = 0;
         relevantAttempts.forEach(a => {
-          if (a.status === 'completed') completed++;
+          if (a.status === 'completed') {
+            completed++;
+            if (a.score !== undefined && a.totalQuestions) {
+              sumPercents += (a.score / a.totalQuestions) * 100;
+            }
+          }
           if (a.status === 'in_progress') inProgress++;
           if (a.status === 'flagged') flagged++;
-          if (a.score) totalScore += a.score;
         });
 
         setStats({
@@ -113,7 +117,7 @@ function ExamManager() {
           completed,
           inProgress,
           flagged,
-          avgScore: completed > 0 ? Math.round(totalScore / completed) : 0
+          avgScore: completed > 0 ? Math.round(sumPercents / completed) : 0
         });
 
       } catch (err: unknown) {
@@ -174,12 +178,9 @@ function ExamManager() {
     const newStatus = !exam.isPublished;
 
     if (newStatus) {
-      if (variants.length < 1) {
-        toast.error('Cannot publish: Exam needs at least 1 variant.');
-        return;
-      }
-      if (questions.length < 1) { // Basic check for active variant
-        toast.error('Cannot publish: Variants must have questions.');
+      const errorMsg = await validateExamForPublish(id);
+      if (errorMsg) {
+        toast.error(`Cannot publish: ${errorMsg}`);
         return;
       }
     }
@@ -277,38 +278,73 @@ function ExamManager() {
   const [newQOptions, setNewQOptions] = useState(['', '']);
   const [newQCorrect, setNewQCorrect] = useState(0);
   const [isAddingQ, setIsAddingQ] = useState(false);
+  const [editingQId, setEditingQId] = useState<string | null>(null);
+
+  const startEditQuestion = (q: Question) => {
+    setNewQText(q.text);
+    setNewQOptions(q.options);
+    setNewQCorrect(q.correctOption);
+    setEditingQId(q.id);
+    setIsAddingQ(true);
+  };
 
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id || !activeVariant || !exam) return;
 
     if (!newQText.trim()) return toast.error('Question text is required');
-    const validOptions = newQOptions.filter(o => o.trim() !== '');
-    if (validOptions.length < 2) return toast.error('At least 2 options are required');
-    if (newQOptions[newQCorrect].trim() === '') return toast.error('Correct option cannot be empty');
+
+    // Process options: trim and remove empty
+    const processedOptions: string[] = [];
+    let newCorrectIndex = -1;
+
+    for (let i = 0; i < newQOptions.length; i++) {
+      const trimmed = newQOptions[i].trim();
+      if (trimmed !== '') {
+        processedOptions.push(trimmed);
+        if (i === newQCorrect) {
+          newCorrectIndex = processedOptions.length - 1;
+        }
+      }
+    }
+
+    if (processedOptions.length < 2) return toast.error('At least 2 options are required');
+    if (newCorrectIndex === -1) return toast.error('Correct option cannot be empty or removed');
 
     try {
-      const qRef = doc(collection(db, `exams/${id}/variants/${activeVariant}/questions`));
-      const newQ = {
-        text: newQText,
-        options: newQOptions.map(o => o.trim()),
-        correctOption: newQCorrect,
-        type: 'radio',
-        expiresAt: exam.expiresAt
-      };
-
-      await writeBatch(db).set(qRef, newQ).commit();
-      setQuestions([...questions, { ...newQ, id: qRef.id } as Question]);
+      if (editingQId) {
+        const qRef = doc(db, `exams/${id}/variants/${activeVariant}/questions`, editingQId);
+        const updatedQ = {
+          text: newQText.trim(),
+          options: processedOptions,
+          correctOption: newCorrectIndex,
+        };
+        await updateDoc(qRef, updatedQ);
+        setQuestions(questions.map(q => q.id === editingQId ? { ...q, ...updatedQ } : q));
+        toast.success('Question updated');
+      } else {
+        const qRef = doc(collection(db, `exams/${id}/variants/${activeVariant}/questions`));
+        const newQ = {
+          text: newQText.trim(),
+          options: processedOptions,
+          correctOption: newCorrectIndex,
+          type: 'radio',
+          expiresAt: exam.expiresAt
+        };
+        await writeBatch(db).set(qRef, newQ).commit();
+        setQuestions([...questions, { ...newQ, id: qRef.id } as Question]);
+        toast.success('Question added');
+      }
 
       // Reset form
       setNewQText('');
       setNewQOptions(['', '']);
       setNewQCorrect(0);
       setIsAddingQ(false);
-      toast.success('Question added');
+      setEditingQId(null);
     } catch (err: unknown) {
       console.error(err);
-      toast.error('Failed to add question');
+      toast.error(editingQId ? 'Failed to update question' : 'Failed to add question');
     }
   };
 
@@ -412,10 +448,16 @@ function ExamManager() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Time (min)</label>
                   <input type="number" value={timeLimit} onChange={e => {setTimeLimit(Number(e.target.value)); setIsDirty(true);}} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" min="1" max="600" />
+                  {(timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit)) && (
+                    <p className="text-red-500 text-xs mt-1">Must be an integer between 1 and 600.</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Passing %</label>
                   <input type="number" value={passingPercent} onChange={e => {setPassingPercent(e.target.value); setIsDirty(true);}} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" min="0" max="100" placeholder="Optional" />
+                  {passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100) && (
+                    <p className="text-red-500 text-xs mt-1">Must be between 0 and 100.</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-2 pt-2">
@@ -442,7 +484,7 @@ function ExamManager() {
             <div className="hidden md:block mt-6">
               <button
                 onClick={handleSaveSettings}
-                disabled={!isDirty || saving}
+                disabled={!isDirty || saving || timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit) || (passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100))}
                 className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-50"
               >
                 <Save className="w-4 h-4" /> Save Settings
@@ -496,6 +538,9 @@ function ExamManager() {
                       <div className="flex justify-between gap-4 mb-2">
                         <span className="font-medium text-slate-900">{idx + 1}. {q.text}</span>
                         <div className="flex gap-2 shrink-0">
+                          <button onClick={() => startEditQuestion(q)} className="text-slate-400 hover:text-blue-500 p-1 -m-1 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                            <Edit className="w-4 h-4" />
+                          </button>
                           <button onClick={() => handleDeleteQuestion(q.id)} className="text-slate-400 hover:text-red-500 p-1 -m-1 min-h-[44px] min-w-[44px] flex items-center justify-center">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -518,7 +563,7 @@ function ExamManager() {
             {/* Add Question Form */}
             {isAddingQ ? (
               <div className="p-4 rounded-lg border-2 border-blue-100 bg-blue-50/50">
-                <h4 className="font-medium text-slate-800 mb-4">Add New Question</h4>
+                <h4 className="font-medium text-slate-800 mb-4">{editingQId ? 'Edit Question' : 'Add New Question'}</h4>
                 <form onSubmit={handleAddQuestion} className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Question Text</label>
@@ -552,8 +597,8 @@ function ExamManager() {
                     )}
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 min-h-[44px]">Save Question</button>
-                    <button type="button" onClick={() => setIsAddingQ(false)} className="px-4 py-2 bg-white text-slate-600 border border-slate-300 rounded font-medium hover:bg-slate-50 min-h-[44px]">Cancel</button>
+                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 min-h-[44px]">{editingQId ? 'Update Question' : 'Save Question'}</button>
+                    <button type="button" onClick={() => { setIsAddingQ(false); setEditingQId(null); setNewQText(''); setNewQOptions(['', '']); setNewQCorrect(0); }} className="px-4 py-2 bg-white text-slate-600 border border-slate-300 rounded font-medium hover:bg-slate-50 min-h-[44px]">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -568,13 +613,13 @@ function ExamManager() {
 
       {/* Mobile Sticky Save Bar */}
       {isDirty && (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-50 flex items-center justify-between">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-50 flex items-center justify-between pb-safe">
           <div className="flex items-center gap-2 text-amber-600 text-sm font-medium">
             <AlertCircle className="w-4 h-4" /> Unsaved changes
           </div>
           <button
             onClick={handleSaveSettings}
-            disabled={saving}
+            disabled={saving || timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit) || (passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100))}
             className="bg-blue-600 text-white px-6 py-2 rounded-full font-medium shadow-sm min-h-[44px] disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save All'}
