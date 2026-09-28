@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { UserRole } from '@/types';
 
@@ -39,9 +39,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userDoc = await getDoc(userDocRef);
 
         let appUser: AppUser;
+        const expiresAt = Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
 
         if (userDoc.exists()) {
           appUser = { ...userDoc.data() } as AppUser;
+          await updateDoc(userDocRef, { expiresAt });
         } else {
           // Create new user document with default 'student' role
           appUser = {
@@ -53,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await setDoc(userDocRef, {
             ...appUser,
             createdAt: serverTimestamp(),
+            expiresAt,
           });
         }
 

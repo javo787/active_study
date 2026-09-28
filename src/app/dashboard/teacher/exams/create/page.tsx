@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { toast } from 'react-hot-toast';
 
@@ -21,6 +21,7 @@ export default function CreateExam() {
         timeLimit: Number(timeLimit),
         isPublished: false,
         createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
       });
       toast.success('Exam created successfully');
       router.push(`/dashboard/teacher/exams/${docRef.id}`);
