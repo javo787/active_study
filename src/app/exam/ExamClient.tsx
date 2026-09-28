@@ -65,12 +65,16 @@ export default function ExamTakingInterface() {
     setErrorMsg(`Your attempt was stopped (${reason}). Ask your teacher to reset it.`);
   }, []);
 
+  const handleWarning = useCallback((count: number, max: number) => {
+    toast.error(`Warning ${count} of ${max} — leaving the exam page is recorded.`);
+  }, []);
+
   useProctoring({
     attemptId: attempt?.id || null,
     status,
     onTerminate: handleTerminate,
     isPreviewMode,
-    onWarning: (count, max) => toast.error(`Warning ${count} of ${max} — leaving the exam page is recorded.`)
+    onWarning: handleWarning
   });
 
   useEffect(() => {
@@ -215,6 +219,7 @@ export default function ExamTakingInterface() {
           finishedAt: serverTimestamp(),
           score,
           totalQuestions: questions.length,
+          answers: answers,
         });
       }
       setAttempt(prev => prev ? {...prev, status: 'completed', score, totalQuestions: questions.length} : null);
