@@ -7,6 +7,8 @@ export interface User {
   role: UserRole;
   displayName: string;
   email: string;
+  fullName?: string;
+  group?: string;
   expiresAt?: Date | Timestamp;
 }
 
@@ -26,6 +28,13 @@ export interface Exam {
   timeLimit: number; // in minutes
   isPublished: boolean;
   totalVariants?: number;
+  createdBy?: string;
+  createdByName?: string;
+  visibility?: 'listed' | 'link';
+  shuffleQuestions?: boolean;
+  shuffleOptions?: boolean;
+  showAnswers?: boolean;
+  passingPercent?: number | null;
   createdAt: Date | Timestamp; // allow Firestore Timestamp
   expiresAt: Date | Timestamp;
 }
@@ -42,8 +51,13 @@ export interface Attempt {
   id: string;
   studentId: string;
   studentName?: string;
+  studentEmail?: string;
+  studentGroup?: string;
   examId: string;
   examTitle?: string;
+  teacherId?: string | null;
+  passingPercent?: number | null;
+  seed?: number;
   variantId?: string; // which sequence the student solved
   answers: Record<string, number>; // questionId -> optionIndex
   status: AttemptStatus;
@@ -51,6 +65,8 @@ export interface Attempt {
   totalQuestions?: number;
   startedAt: Date | Timestamp;
   finishedAt?: Date | Timestamp;
+  violationCount?: number;
+  lastViolationAt?: Date | Timestamp;
   violationReason?: string;
   isPreview?: boolean;
   expiresAt?: Date | Timestamp;

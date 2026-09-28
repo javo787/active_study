@@ -1,11 +1,11 @@
 'use client';
 
-import { ReactNode, useState, useEffect, useRef } from 'react';
+import { ReactNode, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Menu, X } from 'lucide-react';
-import { NAV_BY_ROLE, ADMIN_LINKS, getPageTitle } from '@/lib/nav';
+import { NAV_ITEMS, getPageTitle } from '@/lib/nav';
+import ProfileSetup from '@/components/ProfileSetup';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, loading, signOut } = useAuth();
@@ -78,45 +78,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const roleNav = NAV_BY_ROLE[user.role as keyof typeof NAV_BY_ROLE] || [];
-
-  const navLinks = (
-    <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-      {roleNav.map((link) => {
-        const isActive = link.exact ? pathname === link.href : pathname.startsWith(link.href);
-        const Icon = link.icon;
-        return (
-          <div key={link.href}>
-             <Link
-               href={link.href}
-               className={`flex items-center gap-3 px-4 py-2 min-h-[44px] rounded-md transition-colors ${isActive ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white text-slate-300'}`}
-             >
-                <Icon className="w-5 h-5" />
-                {link.label}
-             </Link>
-             {user.role === 'admin' && link.href === '/dashboard/admin' && (
-                <div className="ml-6 mt-2 space-y-1 md:hidden border-l border-slate-700 pl-2">
-                   {ADMIN_LINKS.map(adminLink => {
-                      const isAdminActive = pathname === adminLink.href;
-                      const AdminIcon = adminLink.icon;
-                      return (
-                        <Link
-                          key={adminLink.href}
-                          href={adminLink.href}
-                          className={`flex items-center gap-3 px-4 py-2 min-h-[44px] rounded-md text-sm transition-colors ${isAdminActive ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-                        >
-                          <AdminIcon className="w-4 h-4" />
-                          {adminLink.label}
-                        </Link>
-                      );
-                   })}
-                </div>
-             )}
-          </div>
-        );
-      })}
-    </nav>
-  );
+  const navItems = NAV_ITEMS[user.role as keyof typeof NAV_ITEMS] || [];
+  const needsProfileSetup = user.role === 'student' && !user.fullName;
 
   return (
     <div className="h-dvh flex flex-col md:flex-row overflow-hidden bg-slate-50">
@@ -196,9 +159,21 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <h1 className="text-xl font-bold text-white tracking-tight">Active Study</h1>
           <p className="text-sm text-slate-500 mt-1 capitalize">{user.role} Portal</p>
         </div>
-
-        {navLinks}
-
+        <nav className="flex-1 px-4 py-6 space-y-2">
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`block px-4 py-3 min-h-[44px] rounded-md ${
+                (pathname === item.href)
+                  ? 'bg-blue-600 text-white'
+                  : 'hover:bg-slate-800 hover:text-white transition-colors'
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
         <div className="p-4 border-t border-slate-800">
             <div className="mb-4 px-2">
                 <p className="text-sm text-white font-medium truncate">{user.displayName}</p>
@@ -210,19 +185,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-safe">
-        {/* Desktop Header */}
-        <header className="hidden md:flex mb-6 items-center justify-between">
-           <h2 className="text-2xl font-bold text-slate-800">
-              {getPageTitle(pathname)}
-           </h2>
-           <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-              {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
-           </div>
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="bg-white shadow-sm px-6 py-4 min-h-[60px] border-b border-slate-200 sticky top-0 z-10 flex items-center justify-between">
+             <h2 className="text-lg font-semibold text-slate-800">
+                {getPageTitle(pathname)}
+             </h2>
         </header>
-
-        {children}
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+          {needsProfileSetup ? <ProfileSetup /> : children}
+        </div>
       </main>
     </div>
   );
