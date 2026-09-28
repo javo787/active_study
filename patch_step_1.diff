@@ -1,0 +1,157 @@
+--- src/app/exam/ExamClient.tsx
++++ src/app/exam/ExamClient.tsx
+@@ -53,7 +53,7 @@
+   const [answers, setAnswers] = useState<Record<string, number>>({});
+   const [deadline, setDeadline] = useState<number | null>(null);
+   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+-  const [status, setStatus] = useState<'loading' | 'ready' | 'in_progress' | 'terminated' | 'completed' | 'unavailable' | 'unauthorized'>('loading');
++  const [status, setStatus] = useState<'loading' | 'ready' | 'in_progress' | 'terminated' | 'completed' | 'unavailable'>('loading');
+   const [errorMsg, setErrorMsg] = useState('');
+   const [isStarting, setIsStarting] = useState(false);
+   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'offline'>('saved');
+@@ -79,18 +79,19 @@
+
+   useEffect(() => {
+     if (authLoading) return;
+-    if (!user) {
+-      setStatus('unauthorized');
+-      return;
+-    }
+-
++    if (!user) return;
+     if (user.role === 'student' && !user.fullName) {
+-      return; // Handled by render
++      return;
+     }
+
++    let cancelled = false;
++
+     const loadExamAndAttempt = async () => {
++      setStatus('loading');
+       if (!id) {
++        if (cancelled) return;
+         setErrorMsg('Invalid exam URL.');
+         setStatus('unavailable');
+         return;
+@@ -99,25 +100,29 @@
+       try {
+         const examDoc = await getDoc(doc(db, 'exams', id));
++        if (cancelled) return;
+         if (!examDoc.exists()) {
+           setErrorMsg('Exam not found.');
+           setStatus('unavailable');
+           return;
+         }
+
+         const examData = { id: examDoc.id, ...examDoc.data() } as Exam;
+
+-        if (!examData.isPublished) {
+-          setErrorMsg('This exam is not published yet.');
+-          setStatus('unavailable');
+-          return;
+-        }
+-
+-        const expMs = toMillis(examData.expiresAt);
+-        if (expMs && expMs <= Date.now()) {
+-          setErrorMsg('This exam has expired.');
+-          setStatus('unavailable');
+-          return;
++        if (!isPreviewMode) {
++          if (!examData.isPublished) {
++            setErrorMsg('This exam is not published yet.');
++            setStatus('unavailable');
++            return;
++          }
++
++          const expMs = toMillis(examData.expiresAt);
++          if (expMs && expMs <= Date.now()) {
++            setErrorMsg('This exam has expired.');
++            setStatus('unavailable');
++            return;
++          }
+         }
+
+         setExam(examData);
+@@ -127,6 +132,7 @@
+         }
+
+         const deterministicAttemptId = `${user.uid}_${id}`;
+         const attemptDoc = await getDoc(doc(db, 'attempts', deterministicAttemptId));
++        if (cancelled) return;
+
+         if (!attemptDoc.exists()) {
+           setStatus('ready');
+@@ -152,6 +158,7 @@
+           const computedDeadline = startedAtMs + (examData.timeLimit * 60000);
+
+           const qSnapshot = await getDocs(collection(db, `exams/${examData.id}/variants/${attemptData.variantId}/questions`));
++          if (cancelled) return;
+           const loadedQuestions = qSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
+           let finalQuestions = [...loadedQuestions];
+           if (examData.shuffleQuestions && attemptData.seed !== undefined) {
+@@ -183,11 +190,12 @@
+           if (Date.now() >= computedDeadline) {
+              const finalScore = loadedQuestions.filter(q => attemptData.answers[q.id] === q.correctOption).length;
+              await updateDoc(doc(db, 'attempts', deterministicAttemptId), {
+                 status: 'completed',
+                 finishedAt: Timestamp.fromMillis(computedDeadline),
+                 score: finalScore,
+                 totalQuestions: loadedQuestions.length
+              });
++             if (cancelled) return;
+              setAttempt(prev => prev ? {...prev, status: 'completed', score: finalScore, totalQuestions: loadedQuestions.length} : null);
+              setStatus('completed');
+              return;
+@@ -198,13 +206,15 @@
+
+       } catch (error) {
+         console.error('Error fetching exam/attempt:', error);
++        if (cancelled) return;
+         setErrorMsg('Failed to load exam data.');
+         setStatus('unavailable');
+       }
+     };
+
+     loadExamAndAttempt();
+-  }, [id, user, authLoading, isPreviewMode]);
++    return () => { cancelled = true; };
++  }, [id, user?.uid, user?.role, user?.fullName, authLoading, isPreviewMode]);
+
+   const handleFinishExam = useCallback(async () => {
+@@ -433,28 +443,26 @@
+   }, [status, isPreviewMode]);
+
+   if (authLoading || status === 'loading') {
+     return <div className="min-h-screen flex items-center justify-center bg-slate-50">Loading exam...</div>;
+   }
+
+-  if (status === 'unauthorized') {
+-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as { MSStream: unknown }).MSStream;
+-    const isAndroid = /Android/.test(navigator.userAgent);
+-    const isApp = isIOS || isAndroid; // simplified check
+-
++  if (!user) {
+     return (
+       <div className="flex flex-col items-center justify-center min-h-[50vh] p-4">
+         <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+           <h2 className="text-2xl font-bold text-slate-800 mb-4">Sign In Required</h2>
+           <p className="text-slate-600 mb-6">You must be signed in to open this exam.</p>
+-          {isApp && (
+-            <div className="mb-6 p-3 bg-amber-50 text-amber-800 text-sm rounded border border-amber-200">
+-              Google Sign-In might not work in some in-app browsers. Open this link in Chrome or Safari.
+-            </div>
+-          )}
++          <InAppBrowserNotice />
+           <button onClick={signInWithGoogle} className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 min-h-[44px]">
+             Sign in with Google
+           </button>
+         </div>
+       </div>
+     );
+   }
++
++  if (user.role === 'student' && !user.fullName) {
++    return <ProfileSetup />;
++  }
+
+   if (status === 'unavailable') {

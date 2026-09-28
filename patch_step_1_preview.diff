@@ -1,0 +1,33 @@
+--- src/app/exam/ExamClient.tsx
++++ src/app/exam/ExamClient.tsx
+@@ -108,18 +108,20 @@
+
+         const examData = { id: examDoc.id, ...examDoc.data() } as Exam;
+
+-        if (!examData.isPublished) {
+-          setErrorMsg('This exam is not published yet.');
+-          setStatus('unavailable');
+-          return;
+-        }
+-
+-        const expMs = toMillis(examData.expiresAt);
+-        if (expMs && expMs <= Date.now()) {
+-          setErrorMsg('This exam has expired.');
+-          setStatus('unavailable');
+-          return;
++        if (!isPreviewMode) {
++          if (!examData.isPublished) {
++            setErrorMsg('This exam is not published yet.');
++            setStatus('unavailable');
++            return;
++          }
++
++          const expMs = toMillis(examData.expiresAt);
++          if (expMs && expMs <= Date.now()) {
++            setErrorMsg('This exam has expired.');
++            setStatus('unavailable');
++            return;
++          }
+         }
+
+         setExam(examData);

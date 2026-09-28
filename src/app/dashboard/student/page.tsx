@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -14,6 +14,7 @@ export default function StudentDashboard() {
   const [attempts, setAttempts] = useState<Record<string, Attempt>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const lastFetchTimeRef = useRef<number>(0);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -45,6 +46,7 @@ export default function StudentDashboard() {
 
       setExams(loadedExams);
       setAttempts(attemptsMap);
+      lastFetchTimeRef.current = Date.now();
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
     } finally {
@@ -54,7 +56,11 @@ export default function StudentDashboard() {
 
   useEffect(() => {
     fetchData();
-    const handleFocus = () => fetchData();
+    const handleFocus = () => {
+      if (Date.now() - lastFetchTimeRef.current > 60000) {
+        fetchData();
+      }
+    };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchData]);

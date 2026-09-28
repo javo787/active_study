@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 
 interface UseProctoringProps {
   attemptId: string | null;
+  initialViolationCount?: number;
   status?: string;
   isPreviewMode?: boolean;
   maxViolations?: number;
@@ -17,6 +18,7 @@ export const useProctoring = ({
   attemptId,
   status,
   isPreviewMode,
+  initialViolationCount = 0,
   maxViolations = 3,
   graceMs = 3000,
   onWarning,
@@ -27,6 +29,11 @@ export const useProctoring = ({
   const leftAtRef = useRef<number | null>(null);
   const violationCountRef = useRef(0);
   const lastToastRef = useRef<number>(0);
+  const isRegisteringRef = useRef(false);
+
+  useEffect(() => {
+    violationCountRef.current = initialViolationCount;
+  }, [attemptId, initialViolationCount]);
 
   useEffect(() => {
     attemptIdRef.current = attemptId;
@@ -38,8 +45,10 @@ export const useProctoring = ({
 
     const registerViolation = async (reason: string) => {
       const id = attemptIdRef.current;
-      if (!id || statusRef.current === 'completed' || statusRef.current === 'flagged') return;
+      if (!id || statusRef.current === 'completed' || statusRef.current === 'flagged' || statusRef.current === 'terminated') return;
+      if (isRegisteringRef.current) return;
 
+      isRegisteringRef.current = true;
       const newCount = violationCountRef.current + 1;
       violationCountRef.current = newCount;
 
@@ -63,6 +72,9 @@ export const useProctoring = ({
         }
       } catch (error) {
         console.error('Failed to update attempt status on violation:', error);
+        violationCountRef.current -= 1; // Revert optimistic update on failure
+      } finally {
+        isRegisteringRef.current = false;
       }
     };
 
@@ -116,7 +128,7 @@ export const useProctoring = ({
     const preventCopyPaste = (e: ClipboardEvent) => handleActionPrevent(e, 'Copy/Paste is disabled during the exam.');
     const preventContextMenu = (e: MouseEvent) => handleActionPrevent(e, 'Right-click is disabled during the exam.');
 
-    if (attemptId) {
+    if (attemptId && statusRef.current !== 'completed' && statusRef.current !== 'flagged' && statusRef.current !== 'terminated') {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('blur', handleWindowBlur);
         window.addEventListener('focus', handleWindowFocus);
@@ -133,5 +145,5 @@ export const useProctoring = ({
       document.removeEventListener('paste', preventCopyPaste);
       document.removeEventListener('contextmenu', preventContextMenu);
     };
-  }, [attemptId, isPreviewMode, maxViolations, graceMs, onTerminate, onWarning]);
+  }, [attemptId, isPreviewMode, maxViolations, graceMs, onTerminate, onWarning, status]);
 };

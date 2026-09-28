@@ -49,7 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (userDoc.exists()) {
             appUser = { ...userDoc.data() } as AppUser;
-            await updateDoc(userDocRef, { expiresAt });
+            setUser(appUser);
+
+            const data = userDoc.data();
+            const currentExpiresMs = data.expiresAt ? data.expiresAt.toMillis() : 0;
+            const targetExpiresMs = expiresAt.toMillis();
+
+            if (targetExpiresMs - currentExpiresMs > 24 * 60 * 60 * 1000) {
+              updateDoc(userDocRef, { expiresAt }).catch(console.warn);
+            }
           } else {
             // Create new user document with default 'student' role
             appUser = {
@@ -63,9 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               createdAt: serverTimestamp(),
               expiresAt,
             });
+            setUser(appUser);
           }
-
-          setUser(appUser);
         } else {
           setUser(null);
         }
