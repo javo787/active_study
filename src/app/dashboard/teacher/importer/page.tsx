@@ -23,6 +23,11 @@ export default function CustomTestImporter() {
   const [shuffle, setShuffle] = useState(false);
   const [publishImmediately, setPublishImmediately] = useState(true);
 
+  const [rangeStart, setRangeStart] = useState(1);
+  const [rangeEnd, setRangeEnd] = useState(1);
+  const [useEntireRange, setUseEntireRange] = useState(false);
+  const [randomPickCount, setRandomPickCount] = useState(10);
+
   const [isPublishing, setIsPublishing] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -64,6 +69,9 @@ export default function CustomTestImporter() {
 
       if (valid > 0) {
         toast.success(`Found ${valid} valid questions${invalid > 0 ? ` (${invalid} invalid skipped)` : ''}`);
+        setRangeStart(1);
+        setRangeEnd(valid);
+        setRandomPickCount(Math.min(10, valid));
       } else {
         toast.error('No valid questions found in file');
       }
@@ -108,20 +116,41 @@ export default function CustomTestImporter() {
       // 2. Prepare chunks for variants and questions
       const ops = [];
 
-      for (let i = 0; i < numVariants; i++) {
-        // We use the full valid list, shuffle if requested
-        let pool = [...validQuestions];
+      const maxAvailable = rangeEnd - rangeStart + 1;
+      const pickCount = useEntireRange ? maxAvailable : randomPickCount;
 
+      for (let i = 0; i < numVariants; i++) {
+        // 1. Slice the requested range
+        let pool = validQuestions.slice(rangeStart - 1, rangeEnd);
+
+        // 2. Random pick if needed
+        if (!useEntireRange && pickCount < pool.length) {
+          const shuffledPool = [...pool];
+          for (let j = shuffledPool.length - 1; j > 0; j--) {
+            const k = Math.floor(Math.random() * (j + 1));
+            [shuffledPool[j], shuffledPool[k]] = [shuffledPool[k], shuffledPool[j]];
+          }
+          pool = shuffledPool.slice(0, pickCount);
+        }
+
+        // 3. Shuffle questions and options if requested
         if (shuffle) {
-           pool = pool.sort(() => 0.5 - Math.random());
+           for (let j = pool.length - 1; j > 0; j--) {
+              const k = Math.floor(Math.random() * (j + 1));
+              [pool[j], pool[k]] = [pool[k], pool[j]];
+           }
+
            pool = pool.map(q => {
                const optionsWithIndexes = q.options.map((opt, idx) => ({ text: opt, isCorrect: idx.toString() === q.correctOption }));
-               const shuffledOptions = optionsWithIndexes.sort(() => 0.5 - Math.random());
-               const newCorrectIndex = shuffledOptions.findIndex(o => o.isCorrect);
+               for (let j = optionsWithIndexes.length - 1; j > 0; j--) {
+                  const k = Math.floor(Math.random() * (j + 1));
+                  [optionsWithIndexes[j], optionsWithIndexes[k]] = [optionsWithIndexes[k], optionsWithIndexes[j]];
+               }
+               const newCorrectIndex = optionsWithIndexes.findIndex(o => o.isCorrect);
 
                return {
                    text: q.text,
-                   options: shuffledOptions.map(o => o.text),
+                   options: optionsWithIndexes.map(o => o.text),
                    correctOption: newCorrectIndex.toString()
                };
            });
@@ -158,13 +187,20 @@ export default function CustomTestImporter() {
       toast.success('Exam imported successfully!', { id: loadingToast });
       router.push(`/dashboard/teacher/exam?id=${examId}`);
 
-    } catch {
+    } catch (error) {
+      console.error(error);
       toast.error('Error importing exam. Check if a partial draft was saved.', { id: loadingToast });
       setIsPublishing(false);
     }
   };
 
   const currentValidQuestions = parsedQuestions.filter(q => (q as ParsedQuestion & { isValid?: boolean }).isValid);
+  const maxAvailable = rangeEnd - rangeStart + 1;
+  const pickCount = useEntireRange ? maxAvailable : randomPickCount;
+
+  const isRangeValid = rangeStart >= 1 && rangeEnd <= currentValidQuestions.length && rangeStart <= rangeEnd;
+  const isPickValid = useEntireRange || (randomPickCount >= 1 && randomPickCount <= maxAvailable);
+  const canPublish = isRangeValid && isPickValid && examTitle && currentValidQuestions.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -273,6 +309,48 @@ export default function CustomTestImporter() {
            </div>
         </div>
 
+        {currentValidQuestions.length > 0 && (
+          <div className="pt-4 border-t border-slate-100 space-y-4">
+            <h3 className="font-semibold text-slate-800">Variant Generation Rules</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+               <div>
+                 <label className="block text-sm font-medium text-slate-700">Range Start</label>
+                 <input type="number" value={rangeStart} onChange={e => setRangeStart(Number(e.target.value))} min="1" max={currentValidQuestions.length} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-slate-700">Range End</label>
+                 <input type="number" value={rangeEnd} onChange={e => setRangeEnd(Number(e.target.value))} min="1" max={currentValidQuestions.length} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" />
+               </div>
+            </div>
+
+            <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+               <label className="flex items-center space-x-2 cursor-pointer min-h-[44px]">
+                 <input type="checkbox" checked={useEntireRange} onChange={e => setUseEntireRange(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
+                 <span className="text-sm font-medium text-slate-700">Use all {Math.max(0, maxAvailable)} questions in range for each variant</span>
+               </label>
+
+               {!useEntireRange && (
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700">Randomly pick N questions per variant</label>
+                   <input type="number" value={randomPickCount} onChange={e => setRandomPickCount(Number(e.target.value))} min="1" max={Math.max(1, maxAvailable)} className="mt-1 block w-full max-w-[200px] rounded-md border-slate-300 shadow-sm border p-2" />
+                 </div>
+               )}
+            </div>
+
+            {(!isRangeValid || !isPickValid) && (
+              <p className="text-red-600 text-sm font-medium mt-2">
+                {!isRangeValid ? "Range is invalid." : "Pick count must be within range size."}
+              </p>
+            )}
+
+            {isRangeValid && isPickValid && (
+               <p className="text-blue-600 text-sm font-medium mt-2">
+                 Each variant will have {pickCount} questions.
+               </p>
+            )}
+          </div>
+        )}
+
         <div className="space-y-3 pt-4 border-t border-slate-100">
            <label className="flex items-center space-x-2 cursor-pointer min-h-[44px]">
              <input type="checkbox" checked={shuffle} onChange={e => setShuffle(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
@@ -287,7 +365,7 @@ export default function CustomTestImporter() {
 
         <button
            onClick={publishExam}
-           disabled={isPublishing || currentValidQuestions.length === 0 || !examTitle}
+           disabled={isPublishing || !canPublish}
            className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors min-h-[44px] mt-4"
         >
           {isPublishing ? 'Importing...' : 'Import Exam'}

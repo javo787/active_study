@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc } from 'firebase/firestore';
+import { useEffect, useState, useRef } from 'react';
+import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Exam } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
-import { deleteExamCascade, duplicateExam } from '@/lib/examOps';
+import { deleteExamCascade, duplicateExam, validateExamForPublish } from '@/lib/examOps';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Clock, Copy, Edit, Link as LinkIcon, MoreVertical, Trash2, Eye, EyeOff } from 'lucide-react';
@@ -18,16 +18,18 @@ export default function MyExamsPage() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchExams = async () => {
       if (!user) return;
       try {
         const examsRef = collection(db, 'exams');
-        let q = query(examsRef, orderBy('createdAt', 'desc'));
+        let q = query(examsRef);
 
         if (user.role !== 'admin') {
-          q = query(examsRef, where('createdBy', '==', user.uid), orderBy('createdAt', 'desc'));
+          q = query(examsRef, where('createdBy', '==', user.uid));
         }
 
         const snap = await getDocs(q);
@@ -38,6 +40,11 @@ export default function MyExamsPage() {
           .filter(e => {
             const exp = e.expiresAt && 'toDate' in e.expiresAt ? e.expiresAt.toDate() : (e.expiresAt as Date);
             return exp > now; // hide expired
+          })
+          .sort((a, b) => {
+             const tA = a.createdAt && 'toMillis' in a.createdAt ? a.createdAt.toMillis() : Infinity;
+             const tB = b.createdAt && 'toMillis' in b.createdAt ? b.createdAt.toMillis() : Infinity;
+             return tB - tA;
           });
 
         setExams(examsData);
@@ -50,6 +57,26 @@ export default function MyExamsPage() {
     };
     fetchExams();
   }, [user]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId(null);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenMenuId(null);
+    };
+
+    if (openMenuId) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscape);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [openMenuId]);
 
   const handleDuplicate = async (examId: string) => {
     if (!user) return;
@@ -79,9 +106,9 @@ export default function MyExamsPage() {
 
   const handleTogglePublish = async (exam: Exam) => {
     if (!exam.isPublished) {
-      // Validate before publishing
-      if ((exam.totalVariants || 0) < 1) {
-        toast.error('Cannot publish: Exam needs at least 1 variant with questions.');
+      const errorMsg = await validateExamForPublish(exam.id);
+      if (errorMsg) {
+        toast.error(`Cannot publish: ${errorMsg}`);
         return;
       }
     }
@@ -158,32 +185,46 @@ export default function MyExamsPage() {
             <div key={exam.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col gap-4">
               <div className="flex justify-between items-start gap-4">
                 <h3 className="font-semibold text-slate-900 line-clamp-2">{exam.title}</h3>
-                <div className="relative group shrink-0">
-                  <button className="p-2 -m-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                <div className="relative shrink-0" ref={openMenuId === exam.id ? menuRef : null}>
+                  <button
+                    onClick={() => setOpenMenuId(openMenuId === exam.id ? null : exam.id)}
+                    className="p-2 -m-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  >
                     <MoreVertical className="w-5 h-5" />
                   </button>
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-100 hidden group-hover:block group-focus-within:block z-10 py-1">
-                    <button onClick={() => router.push(`/dashboard/teacher/exam?id=${exam.id}`)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                      <Edit className="w-4 h-4" /> Edit Content
-                    </button>
-                    <button onClick={() => handleShare(exam.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                      <LinkIcon className="w-4 h-4" /> Share Link
-                    </button>
-                    <button onClick={() => handleTogglePublish(exam)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                      {exam.isPublished ? <><EyeOff className="w-4 h-4" /> Unpublish</> : <><Eye className="w-4 h-4" /> Publish</>}
-                    </button>
-                    <button onClick={() => handleDuplicate(exam.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                      <Copy className="w-4 h-4" /> Duplicate
-                    </button>
-                    <div className="h-px bg-slate-100 my-1"></div>
-                    <button onClick={() => handleDelete(exam.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
-                      <Trash2 className="w-4 h-4" /> Delete
-                    </button>
-                  </div>
+                  {openMenuId === exam.id && (
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-100 z-10 py-1">
+                      <button onClick={() => { setOpenMenuId(null); router.push(`/dashboard/teacher/exam?id=${exam.id}`); }} className="w-full text-left px-4 py-2 min-h-[44px] text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                        <Edit className="w-4 h-4" /> Edit Content
+                      </button>
+                      <button onClick={() => { setOpenMenuId(null); handleShare(exam.id); }} className="w-full text-left px-4 py-2 min-h-[44px] text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                        <LinkIcon className="w-4 h-4" /> Share Link
+                      </button>
+                      <button onClick={() => { setOpenMenuId(null); handleTogglePublish(exam); }} className="w-full text-left px-4 py-2 min-h-[44px] text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                        {exam.isPublished ? <><EyeOff className="w-4 h-4" /> Unpublish</> : <><Eye className="w-4 h-4" /> Publish</>}
+                      </button>
+                      <button onClick={() => { setOpenMenuId(null); handleDuplicate(exam.id); }} className="w-full text-left px-4 py-2 min-h-[44px] text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                        <Copy className="w-4 h-4" /> Duplicate
+                      </button>
+                      <div className="h-px bg-slate-100 my-1"></div>
+                      <button onClick={() => { setOpenMenuId(null); handleDelete(exam.id); }} className="w-full text-left px-4 py-2 min-h-[44px] text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                        <Trash2 className="w-4 h-4" /> Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2">
+                <button onClick={() => router.push(`/dashboard/teacher/exam?id=${exam.id}`)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium py-2 rounded-md min-h-[44px] flex items-center justify-center gap-2">
+                   <Edit className="w-4 h-4" /> Manage
+                </button>
+                <button onClick={() => handleShare(exam.id)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium py-2 rounded-md min-h-[44px] flex items-center justify-center gap-2">
+                   <LinkIcon className="w-4 h-4" /> Share
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-auto pt-2">
                 <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                   !exam.isPublished ? 'bg-slate-100 text-slate-600' :
                   exam.visibility === 'link' ? 'bg-purple-100 text-purple-700' :
