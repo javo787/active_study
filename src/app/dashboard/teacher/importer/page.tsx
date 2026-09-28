@@ -119,7 +119,7 @@ export default function CustomTestImporter() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 bg-white shadow-sm border border-slate-200 rounded-lg">
+    <div className="max-w-4xl mx-auto p-4 sm:p-6 bg-white shadow-sm border border-slate-200 rounded-lg">
       <h2 className="text-2xl font-bold text-slate-800 mb-6">Custom Test Importer</h2>
 
       <div className="space-y-6">
@@ -129,7 +129,7 @@ export default function CustomTestImporter() {
           <p className="mt-2 text-sm text-slate-500">Parsed Questions: {parsedQuestions.length}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
            <div>
              <label className="block text-sm font-medium text-slate-700">Exam Title</label>
              <input type="text" value={examTitle} onChange={e => setExamTitle(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" />
@@ -140,7 +140,7 @@ export default function CustomTestImporter() {
            </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4">
            <div>
              <label className="block text-sm font-medium text-slate-700">Start from Question X</label>
              <input type="number" value={rangeStart} onChange={e => setRangeStart(Number(e.target.value))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" />
@@ -152,8 +152,8 @@ export default function CustomTestImporter() {
         </div>
 
         <div className="space-y-4 border-t pt-4">
-           <label className="flex items-center space-x-2 cursor-pointer">
-             <input type="checkbox" checked={useEntireRange} onChange={e => setUseEntireRange(e.target.checked)} className="rounded border-slate-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50" />
+           <label className="flex items-center space-x-2 cursor-pointer min-h-[44px]">
+             <input type="checkbox" checked={useEntireRange} onChange={e => setUseEntireRange(e.target.checked)} className="rounded border-slate-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 min-h-[24px] min-w-[24px]" />
              <span className="text-sm font-medium text-slate-700">Use Entire Range</span>
            </label>
 
@@ -163,7 +163,7 @@ export default function CustomTestImporter() {
            </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4">
            <div>
              <label className="block text-sm font-medium text-slate-700">Number of Variants</label>
              <input type="number" value={numVariants} onChange={e => setNumVariants(Number(e.target.value))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" />
@@ -180,7 +180,7 @@ export default function CustomTestImporter() {
         <button
            onClick={publishExam}
            disabled={isPublishing || parsedQuestions.length === 0 || !examTitle}
-           className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
+           className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors min-h-11"
         >
           {isPublishing ? 'Publishing...' : 'Publish Exam'}
         </button>

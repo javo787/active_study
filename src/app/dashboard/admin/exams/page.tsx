@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Exam } from '@/types';
-import { toast, Toaster } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 
 export default function AdminExamsPage() {
   const [exams, setExams] = useState<Exam[]>([]);
@@ -56,7 +56,35 @@ export default function AdminExamsPage() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-slate-800 mb-6">Content Moderation (Exams)</h2>
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+
+      {/* Mobile view: Stacked Cards */}
+      <div className="md:hidden space-y-4">
+        {exams.length === 0 ? (
+          <div className="text-center text-sm text-slate-500 p-4">No exams found.</div>
+        ) : (
+          exams.map(e => (
+            <div key={e.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 flex flex-col gap-3">
+              <div className="flex justify-between items-start gap-2">
+                <div className="text-sm font-medium text-slate-900">{e.title}</div>
+                <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full shrink-0 ${
+                  e.isPublished ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {e.isPublished ? 'Published' : 'Draft'}
+                </span>
+              </div>
+              <div className="flex gap-2 w-full pt-2 border-t border-slate-100">
+                {e.isPublished && (
+                  <button onClick={() => handleUnpublishExam(e.id)} className="flex-1 min-h-[44px] bg-orange-50 text-orange-600 rounded-md font-medium text-sm hover:bg-orange-100 transition-colors">Force Unpublish</button>
+                )}
+                <button onClick={() => handleDeleteExam(e.id)} className="flex-1 min-h-[44px] bg-red-50 text-red-600 rounded-md font-medium text-sm hover:bg-red-100 transition-colors">Delete</button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop view: Table */}
+      <div className="hidden md:block bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>
@@ -90,7 +118,6 @@ export default function AdminExamsPage() {
           </tbody>
         </table>
       </div>
-      <Toaster position="bottom-right" />
     </div>
   );
 }
