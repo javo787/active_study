@@ -7,10 +7,14 @@
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+html {
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px;
   }
 }
 
@@ -23,5 +27,11 @@ body {
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

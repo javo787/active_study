@@ -32,7 +32,7 @@ export default function CreateExam() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-sm border border-slate-200">
+    <div className="max-w-2xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-slate-200">
       <h2 className="text-2xl font-bold text-slate-800 mb-6">Create New Exam</h2>
 
       <form onSubmit={handleCreate} className="space-y-4">
@@ -71,7 +71,7 @@ export default function CreateExam() {
 
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors min-h-[44px]"
         >
           Create Exam
         </button>
