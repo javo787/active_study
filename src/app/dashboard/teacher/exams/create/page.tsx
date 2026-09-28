@@ -2,32 +2,70 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
+import { expiryFromNow, EXAM_TTL_DAYS } from '@/lib/examOps';
 
 export default function CreateExam() {
   const router = useRouter();
+  const { user } = useAuth();
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [timeLimit, setTimeLimit] = useState(60);
+  const [passingPercent, setPassingPercent] = useState('');
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [shuffleOptions, setShuffleOptions] = useState(false);
+  const [showAnswers, setShowAnswers] = useState(false);
+  const [visibility, setVisibility] = useState<'listed' | 'link'>('listed');
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+
+    setIsSubmitting(true);
     try {
-      const docRef = await addDoc(collection(db, 'exams'), {
+      const batch = writeBatch(db);
+
+      const newExamRef = doc(collection(db, 'exams'));
+      const examId = newExamRef.id;
+      const expiresAt = expiryFromNow(EXAM_TTL_DAYS);
+
+      batch.set(newExamRef, {
         title,
         description,
         timeLimit: Number(timeLimit),
+        passingPercent: passingPercent ? Number(passingPercent) : null,
+        shuffleQuestions,
+        shuffleOptions,
+        showAnswers,
+        visibility,
         isPublished: false,
+        totalVariants: 1,
         createdAt: serverTimestamp(),
-        expiresAt: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
+        expiresAt,
+        createdBy: user.uid,
+        createdByName: user.fullName || user.displayName,
       });
-      toast.success('Exam created successfully');
-      router.push(`/dashboard/teacher/exams/${docRef.id}`);
+
+      const newVariantRef = doc(collection(db, `exams/${examId}/variants`));
+      batch.set(newVariantRef, {
+        examId,
+        expiresAt,
+      });
+
+      await batch.commit();
+
+      toast.success('Exam draft created');
+      router.push(`/dashboard/teacher/exam?id=${examId}`);
     } catch (error) {
       toast.error('Failed to create exam');
       console.error(error);
+      setIsSubmitting(false);
     }
   };
 
@@ -57,23 +95,81 @@ export default function CreateExam() {
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Time Limit (minutes)</label>
-          <input
-            type="number"
-            value={timeLimit}
-            onChange={(e) => setTimeLimit(Number(e.target.value))}
-            min="1"
-            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-            required
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Time Limit (minutes)</label>
+            <input
+              type="number"
+              value={timeLimit}
+              onChange={(e) => setTimeLimit(Number(e.target.value))}
+              min="1"
+              max="600"
+              className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Passing Percentage (Optional)</label>
+            <input
+              type="number"
+              value={passingPercent}
+              onChange={(e) => setPassingPercent(e.target.value)}
+              min="0"
+              max="100"
+              placeholder="e.g. 70"
+              className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t border-slate-100">
+          <label className="flex items-center space-x-3 cursor-pointer min-h-[44px]">
+            <input
+              type="checkbox"
+              checked={shuffleQuestions}
+              onChange={e => setShuffleQuestions(e.target.checked)}
+              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-slate-700">Shuffle questions</span>
+          </label>
+
+          <label className="flex items-center space-x-3 cursor-pointer min-h-[44px]">
+            <input
+              type="checkbox"
+              checked={shuffleOptions}
+              onChange={e => setShuffleOptions(e.target.checked)}
+              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-slate-700">Shuffle options within questions</span>
+          </label>
+
+          <label className="flex items-center space-x-3 cursor-pointer min-h-[44px]">
+            <input
+              type="checkbox"
+              checked={showAnswers}
+              onChange={e => setShowAnswers(e.target.checked)}
+              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-slate-700">Show correct answers after submit</span>
+          </label>
+
+          <label className="flex items-center space-x-3 cursor-pointer min-h-[44px]">
+            <input
+              type="checkbox"
+              checked={visibility === 'listed'}
+              onChange={e => setVisibility(e.target.checked ? 'listed' : 'link')}
+              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-slate-700">Show on students&apos; dashboard (uncheck for link-only)</span>
+          </label>
         </div>
 
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors min-h-[44px]"
+          disabled={isSubmitting}
+          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors min-h-[44px] mt-6 disabled:opacity-50"
         >
-          Create Exam
+          {isSubmitting ? 'Creating...' : 'Create Exam'}
         </button>
       </form>
     </div>

@@ -1,6 +1,7 @@
 'use client';
 
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useState, useRef } from 'react';
+import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -139,7 +140,22 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
              </button>
            </div>
 
-           {navLinks}
+           <nav className="flex-1 px-4 py-6 space-y-2">
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setDrawerOpen(false)}
+              className={`block px-4 py-3 min-h-[44px] rounded-md ${
+                (pathname === item.href)
+                  ? 'bg-blue-600 text-white'
+                  : 'hover:bg-slate-800 hover:text-white transition-colors'
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
+           </nav>
 
            <div className="p-4 border-t border-slate-800 pb-safe">
               <div className="mb-4 px-2">

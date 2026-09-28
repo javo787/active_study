@@ -3,6 +3,15 @@ export interface NavItem {
   label: string;
 }
 
+import { Shield, Users, FileText, Database } from 'lucide-react';
+
+export const ADMIN_LINKS = [
+  { href: '/dashboard/admin', label: 'Overview', icon: Shield },
+  { href: '/dashboard/admin/users', label: 'Users', icon: Users },
+  { href: '/dashboard/admin/exams', label: 'Exams', icon: FileText },
+  { href: '/dashboard/admin/attempts', label: 'Attempts', icon: Database },
+];
+
 export const NAV_ITEMS = {
   admin: [
     { href: '/dashboard/admin', label: 'Admin Dashboard' },
@@ -10,8 +19,10 @@ export const NAV_ITEMS = {
     { href: '/dashboard/profile', label: 'Profile' },
   ],
   teacher: [
-    { href: '/dashboard/teacher', label: 'Teacher Dashboard' },
-    { href: '/dashboard/teacher/importer', label: 'Custom Importer' },
+    { href: '/dashboard/teacher', label: 'Dashboard' },
+    { href: '/dashboard/teacher/exams', label: 'My Exams' },
+    { href: '/dashboard/teacher/attempts', label: 'Attempts' },
+    { href: '/dashboard/teacher/importer', label: 'Import' },
     { href: '/dashboard/profile', label: 'Profile' },
   ],
   student: [
