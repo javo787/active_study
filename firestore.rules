@@ -2,57 +2,82 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check user roles
-    function getUserRole() {
+    function signedIn() { return request.auth != null; }
+    function myRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-
-    function isAdmin() {
-      return request.auth != null && getUserRole() == 'admin';
-    }
-
-    function isTeacher() {
-      return request.auth != null && getUserRole() == 'teacher';
-    }
-
-    function isStudent() {
-      return request.auth != null && getUserRole() == 'student';
-    }
+    function isAdmin() { return signedIn() && myRole() == 'admin'; }
+    function isTeacher() { return signedIn() && myRole() == 'teacher'; }
 
     match /users/{userId} {
-      allow read: if request.auth != null;
-      // Allow users to create their own document (for initial sign-in)
-      // Only admins can modify the role field, otherwise users can modify their own doc
-      allow create: if request.auth != null && request.auth.uid == userId && request.resource.data.role == 'student';
-      allow update: if request.auth != null && (
-        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])) ||
-        isAdmin()
-      );
+      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && request.auth.uid == userId
+                    && request.resource.data.role == 'student';
+      allow update: if signedIn() && (
+        (request.auth.uid == userId
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+        || isAdmin());
       allow delete: if isAdmin();
     }
 
     match /exams/{examId} {
-      allow read: if request.auth != null; // Anyone can read exams (students see published ones only, checked in frontend, but could add rules if needed)
-      allow write: if isAdmin() || isTeacher();
+      function isOwner() { return isTeacher() && resource.data.createdBy == request.auth.uid; }
+
+      allow get: if signedIn() && (resource == null || resource.data.isPublished == true
+                                   || isAdmin() || isOwner());
+      allow list: if signedIn() && (resource.data.isPublished == true || isAdmin() || isOwner());
+      allow create: if (isAdmin() || isTeacher())
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin()
+                    || (isOwner() && request.resource.data.createdBy == resource.data.createdBy);
+      allow delete: if isAdmin() || isOwner();
 
       match /variants/{variantId} {
-        allow read: if request.auth != null;
-        allow write: if isAdmin() || isTeacher();
+        function examNow() { return get(/databases/$(database)/documents/exams/$(examId)).data; }
+        function examAfter() { return getAfter(/databases/$(database)/documents/exams/$(examId)).data; }
+        function canRead() {
+          return signedIn() && (examNow().isPublished == true || isAdmin()
+                 || (isTeacher() && examNow().createdBy == request.auth.uid));
+        }
+        function canWrite() {
+          return isAdmin() || (isTeacher() && examAfter().createdBy == request.auth.uid);
+        }
+        function canDelete() {
+          return isAdmin() || (isTeacher() && examNow().createdBy == request.auth.uid);
+        }
+
+        allow read: if canRead();
+        allow create, update: if canWrite();
+        allow delete: if canDelete();
 
         match /questions/{questionId} {
-          allow read: if request.auth != null;
-          allow write: if isAdmin() || isTeacher();
+          allow read: if canRead();
+          allow create, update: if canWrite();
+          allow delete: if canDelete();
         }
       }
     }
 
     match /attempts/{attemptId} {
-      allow read: if request.auth != null;
-      // Users can create their own attempts, or admins/teachers can create preview attempts
-      allow create: if request.auth != null;
-      // Users can update their own attempts, admins/teachers can update any attempt
-      allow update: if request.auth != null && (request.resource.data.studentId == request.auth.uid || isAdmin() || isTeacher());
-      allow delete: if isAdmin();
+      function isMine() { return resource.data.studentId == request.auth.uid; }
+      function isMyStudent() { return isTeacher() && resource.data.teacherId == request.auth.uid; }
+
+      allow get: if signedIn() && (resource == null || isMine() || isAdmin() || isMyStudent());
+      allow list: if signedIn() && (isMine() || isAdmin() || isMyStudent());
+      allow create: if signedIn()
+        && attemptId == request.auth.uid + '_' + request.resource.data.examId
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.status == 'in_progress'
+        && request.resource.data.teacherId ==
+             get(/databases/$(database)/documents/exams/$(request.resource.data.examId)).data.createdBy;
+      allow update: if signedIn() && (
+        (isMine() && resource.data.status == 'in_progress'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'answers', 'status', 'finishedAt', 'score', 'totalQuestions',
+               'violationCount', 'violationReason', 'lastViolationAt']))
+        || isAdmin() || isMyStudent());
+      allow delete: if isAdmin() || isMyStudent();
     }
   }
 }
