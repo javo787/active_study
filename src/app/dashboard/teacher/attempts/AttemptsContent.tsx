@@ -558,6 +558,23 @@ export function AttemptsContent() {
                       <tr>
                         <td colSpan={6} className="px-6 py-4 bg-slate-50 border-b border-slate-200 shadow-inner">
                           {loadingDetails === a.id && <div className="text-sm text-slate-500">Loading questions...</div>}
+
+                          {a.violations && a.violations.length > 0 && (
+                            <div className="mb-4 bg-red-50 border border-red-200 rounded-md p-3 max-w-4xl">
+                              <h4 className="font-medium text-red-800 mb-2 text-sm flex items-center gap-1"><AlertCircle className="w-4 h-4"/> Violation log</h4>
+                              <ul className="text-xs text-red-700 space-y-1 pl-5 list-disc">
+                                {a.violations.map((v, i) => {
+                                  const vDate = toDate(v.at);
+                                  return (
+                                    <li key={i}>
+                                      {vDate ? format(vDate, 'HH:mm') : ''} — {v.reason}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+
                           {questionDetails[a.id] && questionDetails[a.id].length > 0 && (
                             <div className="space-y-4 max-w-4xl">
                               {questionDetails[a.id].map((q, idx) => {
@@ -650,6 +667,23 @@ export function AttemptsContent() {
                        {expandedId === a.id && (
                         <div className="mt-3 p-3 bg-slate-50 rounded-md border border-slate-100">
                           {loadingDetails === a.id && <div className="text-sm text-slate-500">Loading questions...</div>}
+
+                          {a.violations && a.violations.length > 0 && (
+                            <div className="mb-4 bg-red-50 border border-red-200 rounded-md p-3">
+                              <h4 className="font-medium text-red-800 mb-2 text-sm flex items-center gap-1"><AlertCircle className="w-4 h-4"/> Violation log</h4>
+                              <ul className="text-xs text-red-700 space-y-1 pl-5 list-disc">
+                                {a.violations.map((v, i) => {
+                                  const vDate = toDate(v.at);
+                                  return (
+                                    <li key={i}>
+                                      {vDate ? format(vDate, 'HH:mm') : ''} — {v.reason}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+
                           {questionDetails[a.id] && questionDetails[a.id].length > 0 && (
                             <div className="space-y-3">
                               {questionDetails[a.id].map((q, idx) => {

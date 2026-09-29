@@ -35,6 +35,8 @@ export interface Exam {
   shuffleOptions?: boolean;
   showAnswers?: boolean;
   passingPercent?: number | null;
+  maxViolations?: number;
+  proctoringEnabled?: boolean;
   createdAt: Date | Timestamp; // allow Firestore Timestamp
   expiresAt: Date | Timestamp;
 }
@@ -68,6 +70,7 @@ export interface Attempt {
   violationCount?: number;
   lastViolationAt?: Date | Timestamp;
   violationReason?: string;
+  violations?: { reason: string; at: Date | Timestamp }[];
   isPreview?: boolean;
   expiresAt?: Date | Timestamp;
 }
