@@ -28,13 +28,24 @@ export default function TeacherDashboard() {
       try {
         const now = Date.now();
 
-        // 1. Fetch Exams
+        // 1. Build Queries
         const examsRef = collection(db, 'exams');
         let examsQ = query(examsRef);
         if (user.role !== 'admin') {
           examsQ = query(examsRef, where('createdBy', '==', user.uid));
         }
-        const examsSnap = await getDocs(examsQ);
+
+        const attemptsRef = collection(db, 'attempts');
+        let attemptsQ = query(attemptsRef);
+        if (user.role !== 'admin') {
+          attemptsQ = query(attemptsRef, where('teacherId', '==', user.uid));
+        }
+
+        // 2. Fetch Data
+        const [examsSnap, attemptsSnap] = await Promise.all([
+          getDocs(examsQ),
+          getDocs(attemptsQ),
+        ]);
 
         const validExams = examsSnap.docs
           .map(d => ({ ...d.data(), id: d.id } as Exam))
@@ -44,14 +55,6 @@ export default function TeacherDashboard() {
           });
 
         const publishedCount = validExams.filter(e => e.isPublished).length;
-
-        // 2. Fetch Attempts
-        const attemptsRef = collection(db, 'attempts');
-        let attemptsQ = query(attemptsRef);
-        if (user.role !== 'admin') {
-          attemptsQ = query(attemptsRef, where('teacherId', '==', user.uid));
-        }
-        const attemptsSnap = await getDocs(attemptsQ);
 
         const validAttempts = attemptsSnap.docs
           .map(d => ({ ...d.data(), id: d.id } as Attempt))

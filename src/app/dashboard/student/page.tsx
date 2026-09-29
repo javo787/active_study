@@ -21,8 +21,13 @@ export default function StudentDashboard() {
     setLoading(true);
     try {
       const examsQ = query(collection(db, 'exams'), where('isPublished', '==', true));
-      const examsSnap = await getDocs(examsQ);
+      const attemptsQ = query(collection(db, 'attempts'), where('studentId', '==', user.uid));
       const now = Date.now();
+
+      const [examsSnap, attemptsSnap] = await Promise.all([
+        getDocs(examsQ),
+        getDocs(attemptsQ),
+      ]);
 
       const loadedExams = examsSnap.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Exam))
@@ -32,9 +37,6 @@ export default function StudentDashboard() {
           if (expMs && expMs <= now) return false;
           return true;
         });
-
-      const attemptsQ = query(collection(db, 'attempts'), where('studentId', '==', user.uid));
-      const attemptsSnap = await getDocs(attemptsQ);
       const attemptsMap: Record<string, Attempt> = {};
 
       attemptsSnap.docs.forEach(doc => {
@@ -66,8 +68,8 @@ export default function StudentDashboard() {
   }, [fetchData]);
 
   const filteredExams = exams.filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()));
-  const completedAttempts = Object.values(attempts)
-    .filter(a => a.status === 'completed')
+  const pastAttempts = Object.values(attempts)
+    .filter(a => a.status === 'completed' || a.status === 'flagged')
     .sort((a, b) => (toMillis(b.finishedAt) || 0) - (toMillis(a.finishedAt) || 0));
 
   if (loading && exams.length === 0) {
@@ -166,12 +168,12 @@ export default function StudentDashboard() {
         )}
       </div>
 
-      {completedAttempts.length > 0 && (
+      {pastAttempts.length > 0 && (
         <div>
           <h2 className="text-2xl font-bold text-slate-800 mb-4">My Results</h2>
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
             <ul className="divide-y divide-slate-100">
-              {completedAttempts.map(attempt => {
+              {pastAttempts.map(attempt => {
                 const percent = attempt.totalQuestions ? Math.round((attempt.score! / attempt.totalQuestions) * 100) : 0;
                 const passed = attempt.passingPercent !== null && attempt.passingPercent !== undefined ? percent >= attempt.passingPercent : null;
 
@@ -185,11 +187,13 @@ export default function StudentDashboard() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3 self-start sm:self-auto">
-                        {passed !== null && (
+                        {attempt.status === 'flagged' ? (
+                          <span className="px-2 py-1 text-xs font-bold rounded bg-amber-100 text-amber-700">STOPPED</span>
+                        ) : passed !== null ? (
                           <span className={`px-2 py-1 text-xs font-bold rounded ${passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                             {passed ? 'PASS' : 'FAIL'}
                           </span>
-                        )}
+                        ) : null}
                         <span className="font-medium text-slate-700">
                           {attempt.score}/{attempt.totalQuestions} <span className="text-slate-400">({percent}%)</span>
                         </span>
