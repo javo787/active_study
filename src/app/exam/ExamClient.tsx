@@ -222,7 +222,8 @@ export default function ExamTakingInterface() {
 
     loadExamAndAttempt();
     return () => { cancelled = true; };
-  }, [id, user, authLoading, isPreviewMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.uid, user?.role, user?.fullName, authLoading, isPreviewMode]);
 
   const handleFinishExam = useCallback(async () => {
     if (!exam) return;
@@ -508,10 +509,6 @@ export default function ExamTakingInterface() {
   }
 
   if (user.role === 'student' && !user.fullName) {
-    return <ProfileSetup />;
-  }
-
-  if (user?.role === 'student' && !user.fullName) {
     return <ProfileSetup />;
   }
 

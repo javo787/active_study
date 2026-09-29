@@ -36,3 +36,7 @@ yarn-error.log*
 next-env.d.ts
 server.log
 *.patch
+patch_*.py
+patch_*.diff
+replace*.py
+*.orig
