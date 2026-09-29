@@ -63,10 +63,33 @@ export default function ExamTakingInterface() {
   const [showNavigator, setShowNavigator] = useState(false);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
 
-  const handleTerminate = useCallback(async (reason: string) => {
-    setStatus('terminated');
-    setErrorMsg(`Your attempt was stopped (${reason}). Ask your teacher to reset it.`);
+  const questionsRef = useRef(questions);
+  const answersRef = useRef(answers);
+  useEffect(() => { questionsRef.current = questions; }, [questions]);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+
+  const computeScoreSnapshot = useCallback(() => {
+    const qs = questionsRef.current;
+    const ans = answersRef.current;
+    return {
+      score: qs.filter(q => ans[q.id] === q.correctOption).length,
+      totalQuestions: qs.length,
+    };
   }, []);
+
+  const handleTerminate = useCallback((reason: string) => {
+    const snap = computeScoreSnapshot();
+    setAttempt(prev => prev ? {
+      ...prev,
+      status: 'flagged',
+      violationReason: reason,
+      score: snap.score,
+      totalQuestions: snap.totalQuestions,
+      finishedAt: Timestamp.now(),
+    } : null);
+    setErrorMsg(`Your attempt was stopped (${reason}).`);
+    setStatus('terminated');
+  }, [computeScoreSnapshot]);
 
   const handleWarning = useCallback((count: number, max: number) => {
     toast.error(`Warning ${count} of ${max} — leaving the exam page is recorded.`);
@@ -75,6 +98,9 @@ export default function ExamTakingInterface() {
   useProctoring({
     attemptId: attempt?.id || null,
     status,
+    enabled: exam?.proctoringEnabled !== false,
+    maxViolations: exam?.maxViolations ?? 3,
+    computeScoreSnapshot,
     onTerminate: handleTerminate,
     isPreviewMode,
     onWarning: handleWarning,
@@ -142,21 +168,20 @@ export default function ExamTakingInterface() {
         const attemptData = { id: attemptDoc.id, ...attemptDoc.data() } as Attempt;
         setAttempt(attemptData);
 
-        if (attemptData.status === 'completed') {
-          // If we open a completed attempt from dashboard and might want to review answers, load questions
+        if (attemptData.status === 'completed' || attemptData.status === 'flagged') {
+          // If we open a completed or flagged attempt from dashboard and might want to review answers, load questions
           const qSnapshot = await getDocs(collection(db, `exams/${examData.id}/variants/${attemptData.variantId}/questions`));
           if (cancelled) return;
           const loadedQuestions = qSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
           setQuestions(loadedQuestions);
           setAnswers(attemptData.answers || {});
 
-          setStatus('completed');
-          return;
-        }
-
-        if (attemptData.status === 'flagged') {
-          setStatus('terminated');
-          setErrorMsg(`Your attempt was stopped (${attemptData.violationReason || 'violation'}). Ask your teacher to reset it.`);
+          if (attemptData.status === 'flagged') {
+            setErrorMsg(`Your attempt was stopped (${attemptData.violationReason || 'violation'}).`);
+            setStatus('terminated');
+          } else {
+            setStatus('completed');
+          }
           return;
         }
 
@@ -512,12 +537,12 @@ export default function ExamTakingInterface() {
     return <ProfileSetup />;
   }
 
-  if (status === 'unavailable' || status === 'terminated') {
+  if (status === 'unavailable') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] p-4">
         <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
-          <h2 className={`text-2xl font-bold mb-4 ${status === 'terminated' ? 'text-red-600' : 'text-slate-800'}`}>
-            {status === 'terminated' ? 'Exam Stopped' : 'Exam Unavailable'}
+          <h2 className="text-2xl font-bold mb-4 text-slate-800">
+            Exam Unavailable
           </h2>
           <p className="text-slate-600 mb-8">{errorMsg}</p>
           <Link href="/dashboard/student" className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md font-medium min-h-[44px]">
@@ -528,7 +553,7 @@ export default function ExamTakingInterface() {
     );
   }
 
-  if (status === 'completed') {
+  if (status === 'completed' || status === 'terminated') {
      const percent = attempt && attempt.totalQuestions ? Math.round((attempt.score! / attempt.totalQuestions) * 100) : 0;
      const passed = exam?.passingPercent !== null && exam?.passingPercent !== undefined ? percent >= exam.passingPercent : null;
      const timeTakenMs = attempt?.finishedAt && attempt?.startedAt ? toMillis(attempt.finishedAt)! - toMillis(attempt.startedAt)! : 0;
@@ -538,9 +563,13 @@ export default function ExamTakingInterface() {
        <div className="flex flex-col items-center justify-center min-h-[50vh] p-4">
          <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center justify-center gap-2">
-             Exam Completed
+             {status === 'terminated' ? 'Exam Stopped' : 'Exam Completed'}
              {isPreviewMode && <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">PREVIEW</span>}
            </h2>
+
+           {status === 'terminated' && (
+             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-md p-3 mb-4">{errorMsg}</div>
+           )}
 
            <div className="text-5xl font-extrabold text-blue-600 mb-2">{percent}%</div>
            <p className="text-lg text-slate-600 mb-4">{attempt?.score} of {attempt?.totalQuestions} correct</p>
@@ -593,8 +622,12 @@ export default function ExamTakingInterface() {
              <li><strong>Questions:</strong> Will be displayed one at a time.</li>
              {!isPreviewMode ? (
                 <>
-                  <li><strong>Focus:</strong> Switching tabs or losing window focus will result in a warning. 3 warnings will terminate the exam.</li>
-                  <li><strong>Security:</strong> Right-click and Copy/Paste are disabled.</li>
+                  {exam?.proctoringEnabled !== false && (
+                    <>
+                      <li><strong>Focus:</strong> Switching tabs or losing window focus will result in a warning. {exam?.maxViolations ?? 3} warnings will stop the exam.</li>
+                      <li><strong>Security:</strong> Right-click and Copy/Paste are disabled.</li>
+                    </>
+                  )}
                   <li><strong>Connectivity:</strong> Your progress is saved automatically. If you lose connection, do not refresh—wait for it to reconnect.</li>
                 </>
              ) : (

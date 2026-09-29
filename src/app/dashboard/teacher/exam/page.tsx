@@ -35,6 +35,8 @@ function ExamManager() {
   const [shuffleOptions, setShuffleOptions] = useState(false);
   const [showAnswers, setShowAnswers] = useState(false);
   const [visibility, setVisibility] = useState<'listed' | 'link'>('listed');
+  const [maxViolations, setMaxViolations] = useState<number | ''>(3);
+  const [proctoringEnabled, setProctoringEnabled] = useState(true);
 
   const [isDirty, setIsDirty] = useState(false);
 
@@ -72,6 +74,8 @@ function ExamManager() {
         setShuffleOptions(!!data.shuffleOptions);
         setShowAnswers(!!data.showAnswers);
         setVisibility(data.visibility || 'listed');
+        setMaxViolations(data.maxViolations ?? 3);
+        setProctoringEnabled(data.proctoringEnabled !== false);
 
         // Fetch variants
         const variantsSnap = await getDocs(collection(db, `exams/${id}/variants`));
@@ -159,9 +163,11 @@ function ExamManager() {
         shuffleOptions,
         showAnswers,
         visibility,
+        maxViolations: maxViolations === '' ? 3 : Number(maxViolations),
+        proctoringEnabled,
         totalVariants: variants.length,
       });
-      setExam(prev => prev ? { ...prev, title, description, timeLimit, passingPercent: passingPercent ? Number(passingPercent) : null, shuffleQuestions, shuffleOptions, showAnswers, visibility, totalVariants: variants.length } : null);
+      setExam(prev => prev ? { ...prev, title, description, timeLimit, passingPercent: passingPercent ? Number(passingPercent) : null, shuffleQuestions, shuffleOptions, showAnswers, visibility, maxViolations: maxViolations === '' ? 3 : Number(maxViolations), proctoringEnabled, totalVariants: variants.length } : null);
       setIsDirty(false);
       toast.success('Settings saved');
     } catch (err: unknown) {
@@ -459,8 +465,22 @@ function ExamManager() {
                     <p className="text-red-500 text-xs mt-1">Must be between 0 and 100.</p>
                   )}
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Max violations before auto-stop</label>
+                  <input type="number" value={maxViolations} onChange={e => {setMaxViolations(e.target.value === '' ? '' : Number(e.target.value)); setIsDirty(true);}} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm border p-2" min="1" max="10" />
+                  {maxViolations !== '' && (Number(maxViolations) < 1 || Number(maxViolations) > 10 || !Number.isInteger(Number(maxViolations))) && (
+                    <p className="text-red-500 text-xs mt-1">Must be an integer between 1 and 10.</p>
+                  )}
+                </div>
               </div>
               <div className="space-y-2 pt-2">
+                <label className="flex items-start space-x-2 min-h-[44px] cursor-pointer">
+                  <input type="checkbox" checked={proctoringEnabled} onChange={e => {setProctoringEnabled(e.target.checked); setIsDirty(true);}} className="mt-1 rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
+                  <div>
+                    <span className="text-sm text-slate-700 block">Enable proctoring (detect tab-switching, block copy/paste)</span>
+                    <span className="text-xs text-slate-500 block">Turn off for open-book / practice exams.</span>
+                  </div>
+                </label>
                 <label className="flex items-center space-x-2 min-h-[44px] cursor-pointer">
                   <input type="checkbox" checked={shuffleQuestions} onChange={e => {setShuffleQuestions(e.target.checked); setIsDirty(true);}} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
                   <span className="text-sm text-slate-700">Shuffle questions</span>
@@ -484,7 +504,7 @@ function ExamManager() {
             <div className="hidden md:block mt-6">
               <button
                 onClick={handleSaveSettings}
-                disabled={!isDirty || saving || timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit) || (passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100))}
+                disabled={!isDirty || saving || timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit) || (passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100)) || (maxViolations !== '' && (Number(maxViolations) < 1 || Number(maxViolations) > 10 || !Number.isInteger(Number(maxViolations))))}
                 className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-50"
               >
                 <Save className="w-4 h-4" /> Save Settings
@@ -619,7 +639,7 @@ function ExamManager() {
           </div>
           <button
             onClick={handleSaveSettings}
-            disabled={saving || timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit) || (passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100))}
+            disabled={saving || timeLimit < 1 || timeLimit > 600 || !Number.isInteger(timeLimit) || (passingPercent !== '' && (Number(passingPercent) < 0 || Number(passingPercent) > 100)) || (maxViolations !== '' && (Number(maxViolations) < 1 || Number(maxViolations) > 10 || !Number.isInteger(Number(maxViolations))))}
             className="bg-blue-600 text-white px-6 py-2 rounded-full font-medium shadow-sm min-h-[44px] disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save All'}

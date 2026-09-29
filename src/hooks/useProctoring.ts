@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { doc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, increment, serverTimestamp, arrayUnion, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { toast } from 'react-hot-toast';
 
@@ -10,6 +10,8 @@ interface UseProctoringProps {
   isPreviewMode?: boolean;
   maxViolations?: number;
   graceMs?: number;
+  enabled?: boolean;
+  computeScoreSnapshot?: () => { score: number; totalQuestions: number };
   onWarning: (count: number, max: number, reason: string) => void;
   onTerminate: (reason: string) => void;
 }
@@ -21,6 +23,8 @@ export const useProctoring = ({
   initialViolationCount = 0,
   maxViolations = 3,
   graceMs = 3000,
+  enabled = true,
+  computeScoreSnapshot,
   onWarning,
   onTerminate
 }: UseProctoringProps) => {
@@ -41,7 +45,7 @@ export const useProctoring = ({
   }, [attemptId, status]);
 
   useEffect(() => {
-    if (isPreviewMode) return;
+    if (isPreviewMode || enabled === false) return;
 
     const registerViolation = async (reason: string) => {
       const id = attemptIdRef.current;
@@ -56,11 +60,18 @@ export const useProctoring = ({
         const updates: Record<string, unknown> = {
           violationCount: increment(1),
           violationReason: reason,
-          lastViolationAt: serverTimestamp()
+          lastViolationAt: serverTimestamp(),
+          violations: arrayUnion({ reason, at: Timestamp.now() })
         };
 
         if (newCount >= maxViolations) {
           updates.status = 'flagged';
+          updates.finishedAt = serverTimestamp();
+          if (computeScoreSnapshot) {
+            const snap = computeScoreSnapshot();
+            updates.score = snap.score;
+            updates.totalQuestions = snap.totalQuestions;
+          }
         }
 
         await updateDoc(doc(db, 'attempts', id), updates);
@@ -145,5 +156,5 @@ export const useProctoring = ({
       document.removeEventListener('paste', preventCopyPaste);
       document.removeEventListener('contextmenu', preventContextMenu);
     };
-  }, [attemptId, isPreviewMode, maxViolations, graceMs, onTerminate, onWarning, status]);
+  }, [attemptId, isPreviewMode, enabled, maxViolations, graceMs, computeScoreSnapshot, onTerminate, onWarning, status]);
 };

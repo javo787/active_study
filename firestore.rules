@@ -75,7 +75,7 @@ service cloud.firestore {
         (isMine() && resource.data.status == 'in_progress'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                'answers', 'status', 'finishedAt', 'score', 'totalQuestions',
-               'violationCount', 'violationReason', 'lastViolationAt']))
+               'violationCount', 'violationReason', 'lastViolationAt', 'violations']))
         || isAdmin() || isMyStudent());
       allow delete: if isAdmin() || isMyStudent();
     }
