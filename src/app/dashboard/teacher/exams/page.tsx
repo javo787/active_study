@@ -92,7 +92,15 @@ export default function MyExamsPage() {
   };
 
   const handleDelete = async (examId: string) => {
-    if (!confirm('Are you sure you want to delete this exam? This action cannot be undone.')) return;
+    const inProgressSnap = await getDocs(query(
+      collection(db, 'attempts'),
+      where('examId', '==', examId),
+      where('status', '==', 'in_progress')
+    ));
+    const warning = inProgressSnap.size > 0
+      ? `${inProgressSnap.size} student(s) are currently taking this exam. Deleting it will cut them off. `
+      : '';
+    if (!confirm(`${warning}Are you sure you want to delete this exam? This action cannot be undone.`)) return;
     const t = toast.loading('Deleting exam...');
     try {
       await deleteExamCascade(examId);

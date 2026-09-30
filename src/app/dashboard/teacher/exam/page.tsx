@@ -202,7 +202,10 @@ function ExamManager() {
   };
 
   const handleDelete = async () => {
-    if (!id || !confirm('Are you sure you want to permanently delete this exam?')) return;
+    const warning = stats.inProgress > 0
+      ? `${stats.inProgress} student(s) are currently taking this exam. Deleting it will cut them off. `
+      : '';
+    if (!id || !confirm(`${warning}Are you sure you want to permanently delete this exam?`)) return;
     const t = toast.loading('Deleting exam...');
     try {
       await deleteExamCascade(id);

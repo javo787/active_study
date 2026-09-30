@@ -210,6 +210,18 @@ export function AttemptsContent() {
     }
   };
 
+  const handleAllowRetake = async (attemptId: string) => {
+    if (!confirm('Delete this attempt so the student can take the exam again? This cannot be undone.')) return;
+    try {
+      await deleteDoc(doc(db, 'attempts', attemptId));
+      setAttempts(attempts.filter(a => a.id !== attemptId));
+      toast.success('Attempt cleared — the student can start again.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to clear attempt.');
+    }
+  };
+
   const toggleDetails = async (a: Attempt) => {
     if (expandedId === a.id) {
       setExpandedId(null);
@@ -549,10 +561,10 @@ export function AttemptsContent() {
                           {expandedId === a.id ? 'Hide' : 'View'} Details
                         </button>
                         {a.status === 'flagged' && (
-                          <button onClick={() => handleResetAttempt(a.id)} className="text-blue-600 hover:text-blue-900">Reset</button>
+                          <button onClick={() => handleResetAttempt(a.id)} className="text-blue-600 hover:text-blue-900 mr-4">Reset</button>
                         )}
-                        <button onClick={() => setDeleteDialog({isOpen: true, attemptId: a.id})} className="text-red-600 hover:text-red-900">
-                           Allow Retake
+                        <button onClick={() => handleAllowRetake(a.id)} className="text-slate-600 hover:text-slate-900">
+                           Allow retake
                         </button>
                       </td>
                     </tr>
@@ -661,8 +673,8 @@ export function AttemptsContent() {
                              Reset
                            </button>
                          )}
-                         <button onClick={() => setDeleteDialog({isOpen: true, attemptId: a.id})} className="flex-1 min-h-[44px] bg-red-100 hover:bg-red-200 text-red-700 rounded-md text-sm font-medium">
-                            Retake
+                         <button onClick={() => handleAllowRetake(a.id)} className="flex-1 min-h-[44px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium">
+                            Allow retake
                          </button>
                        </div>
 

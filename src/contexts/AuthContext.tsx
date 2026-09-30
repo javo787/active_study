@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
@@ -52,11 +52,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(appUser);
 
             const data = userDoc.data();
-            const currentExpiresMs = data.expiresAt ? data.expiresAt.toMillis() : 0;
-            const targetExpiresMs = expiresAt.toMillis();
+            if (appUser.role === 'student') {
+              const currentExpiresMs = data.expiresAt ? data.expiresAt.toMillis() : 0;
+              const targetExpiresMs = expiresAt.toMillis();
 
-            if (targetExpiresMs - currentExpiresMs > 24 * 60 * 60 * 1000) {
-              updateDoc(userDocRef, { expiresAt }).catch(console.warn);
+              if (targetExpiresMs - currentExpiresMs > 24 * 60 * 60 * 1000) {
+                updateDoc(userDocRef, { expiresAt }).catch(console.warn);
+              }
+            } else if (data.expiresAt) {
+              updateDoc(userDocRef, { expiresAt: deleteField() }).catch(console.warn);
             }
           } else {
             // Create new user document with default 'student' role
