@@ -64,23 +64,25 @@ export function AttemptsContent() {
     if (!user) return;
     setLoading(true);
     try {
-      // Fetch exams for filter options
+      // Build Queries
       const examsQ = user.role === 'admin'
         ? query(collection(db, 'exams'))
         : query(collection(db, 'exams'), where('createdBy', '==', user.uid));
-      const examsSnap = await getDocs(examsQ);
-      const examsData = examsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Exam));
-      setExams(examsData);
 
-      // Fetch attempts
       const attemptsRef = collection(db, 'attempts');
       let attemptsQ = query(attemptsRef);
-
       if (user.role !== 'admin') {
          attemptsQ = query(attemptsRef, where('teacherId', '==', user.uid));
       }
 
-      const attemptsSnap = await getDocs(attemptsQ);
+      // Fetch Data
+      const [examsSnap, attemptsSnap] = await Promise.all([
+        getDocs(examsQ),
+        getDocs(attemptsQ),
+      ]);
+
+      const examsData = examsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Exam));
+      setExams(examsData);
       const now = Date.now();
 
       const allAttempts = attemptsSnap.docs
