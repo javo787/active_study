@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { User, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
@@ -28,7 +28,13 @@ export default function AdminUsersPage() {
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      const updates: Record<string, unknown> = { role: newRole };
+      if (newRole === 'student') {
+        updates.expiresAt = Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+      } else {
+        updates.expiresAt = deleteField();
+      }
+      await updateDoc(doc(db, 'users', userId), updates);
       setUsers(users.map(u => u.uid === userId ? { ...u, role: newRole } : u));
       toast.success('User role updated successfully.');
     } catch (error) {
