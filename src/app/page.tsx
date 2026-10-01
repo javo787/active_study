@@ -1,15 +1,67 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogIn } from 'lucide-react';
+import { LogIn, Send } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { loadTelegramSession, clearTelegramSession, TelegramLoginError, TelegramLoginSession } from '@/lib/telegramAuth';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
 
 export default function LoginPage() {
-  const { user, loading, signInWithGoogle } = useAuth();
+  const { user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn } = useAuth();
   const router = useRouter();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const [tgSession, setTgSession] = useState<TelegramLoginSession | null>(null);
+  const [tgStarting, setTgStarting] = useState(false);
+  const tgAbortRef = useRef<AbortController | null>(null);
+
+  const waitForTelegram = async (session: TelegramLoginSession) => {
+    tgAbortRef.current?.abort();
+    const controller = new AbortController();
+    tgAbortRef.current = controller;
+    setTgSession(session);
+    try {
+      await finishTelegramSignIn(session, controller.signal);
+    } catch (err) {
+      if (err instanceof TelegramLoginError && err.code === 'cancelled') return;
+      if (err instanceof TelegramLoginError && err.code === 'expired') {
+        toast.error('The Telegram link expired. Please try again.');
+      } else {
+        toast.error('Telegram sign-in failed. Please try again.');
+      }
+      setTgSession(null);
+    }
+  };
+
+  const handleTelegramLogin = async () => {
+    setTgStarting(true);
+    try {
+      const session = await startTelegramSignIn();
+      // Opening from here may be blocked by the browser; the visible "Open Telegram" button is the fallback.
+      window.open(session.botUrl, '_blank', 'noopener');
+      void waitForTelegram(session);
+    } catch {
+      toast.error('Could not start Telegram sign-in. Check your connection.');
+    } finally {
+      setTgStarting(false);
+    }
+  };
+
+  const cancelTelegramLogin = () => {
+    tgAbortRef.current?.abort();
+    clearTelegramSession();
+    setTgSession(null);
+  };
+
+  // The browser may reload the page while the user is in Telegram: pick the login back up.
+  useEffect(() => {
+    const pending = loadTelegramSession();
+    if (pending) void waitForTelegram(pending);
+    return () => tgAbortRef.current?.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -87,6 +139,43 @@ export default function LoginPage() {
             )}
             {isLoggingIn ? 'Signing in...' : 'Continue with Google'}
           </button>
+
+          {tgSession ? (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-left space-y-3">
+              <p className="text-sm text-slate-700">
+                1. Open Telegram and press <b>Start</b>.<br />
+                2. Tap <b>Confirm</b> in the bot.<br />
+                3. Come back here — you will be signed in automatically.
+              </p>
+              <a
+                href={tgSession.botUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full min-h-[48px] flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white font-medium rounded-lg text-base px-5 py-3 transition-colors"
+              >
+                <Send className="w-5 h-5" />
+                Open Telegram
+              </a>
+              <div className="flex items-center justify-between text-sm text-slate-500">
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin"></span>
+                  Waiting for confirmation…
+                </span>
+                <button onClick={cancelTelegramLogin} className="underline hover:text-slate-700">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={handleTelegramLogin}
+              disabled={tgStarting}
+              className="w-full min-h-[48px] flex items-center justify-center gap-3 bg-sky-500 hover:bg-sky-600 focus:ring-4 focus:ring-sky-100 text-white font-medium rounded-lg text-base px-5 py-3.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send className="w-5 h-5" />
+              {tgStarting ? 'Starting…' : 'Continue with Telegram'}
+            </button>
+          )}
         </div>
 
         <div className="bg-slate-50 py-4 px-8 border-t border-slate-100 text-center">

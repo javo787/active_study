@@ -1,11 +1,12 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signInWithCustomToken, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
+import { startTelegramLogin, waitForTelegramLogin, TelegramLoginSession } from '@/lib/telegramAuth';
 
 interface AppUser {
   uid: string;
@@ -20,6 +21,8 @@ interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  startTelegramSignIn: () => Promise<TelegramLoginSession>;
+  finishTelegramSignIn: (session: TelegramLoginSession, signal?: AbortSignal) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (data: { fullName: string; group?: string }) => Promise<void>;
 }
@@ -28,6 +31,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   signInWithGoogle: async () => {},
+  startTelegramSignIn: async () => { throw new Error('AuthProvider missing'); },
+  finishTelegramSignIn: async () => {},
   signOut: async () => {},
   updateProfile: async () => {},
 });
@@ -64,10 +69,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           } else {
             // Create new user document with default 'student' role
+            let displayName = firebaseUser.displayName || '';
+            if (!displayName) {
+              // Telegram sign-in has no Google profile; the portal puts the name in a token claim.
+              try {
+                const tokenResult = await firebaseUser.getIdTokenResult();
+                if (typeof tokenResult.claims.tgName === 'string') displayName = tokenResult.claims.tgName;
+              } catch {}
+            }
             appUser = {
               uid: firebaseUser.uid,
               role: 'student',
-              displayName: firebaseUser.displayName || 'Anonymous',
+              displayName: displayName || 'Anonymous',
               email: firebaseUser.email || '',
             };
             await setDoc(userDocRef, {
@@ -112,6 +125,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const startTelegramSignIn = async () => startTelegramLogin();
+
+  const finishTelegramSignIn = async (session: TelegramLoginSession, signal?: AbortSignal) => {
+    const customToken = await waitForTelegramLogin(session, signal);
+    await signInWithCustomToken(auth, customToken);
+  };
+
   const updateProfile = async (data: { fullName: string; group?: string }) => {
     if (!user) return;
     try {
@@ -133,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
