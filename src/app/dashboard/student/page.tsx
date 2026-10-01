@@ -3,40 +3,75 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { toast } from 'react-hot-toast';
 import { db } from '@/lib/firebase';
-import { Exam, Attempt } from '@/types';
+import { Exam, Attempt, Group } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatTimeLeft, toMillis } from '@/lib/time';
+import {
+  JoinGroupError,
+  clearPendingJoinCode,
+  fetchGroupsByIds,
+  peekPendingJoinCode,
+} from '@/lib/groups';
+
+// Firestore allows at most 30 values in array-contains-any.
+const IN_CHUNK = 30;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 export default function StudentDashboard() {
-  const { user } = useAuth();
+  const { user, joinGroup, leaveGroup } = useAuth();
   const [exams, setExams] = useState<Exam[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [joinCode, setJoinCode] = useState('');
+  const [joining, setJoining] = useState(false);
   const [attempts, setAttempts] = useState<Record<string, Attempt>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const lastFetchTimeRef = useRef<number>(0);
+  const pendingHandledRef = useRef(false);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const examsQ = query(collection(db, 'exams'), where('isPublished', '==', true));
+      const groupIds = user.groupIds ?? [];
       const attemptsQ = query(collection(db, 'attempts'), where('studentId', '==', user.uid));
       const now = Date.now();
 
-      const [examsSnap, attemptsSnap] = await Promise.all([
-        getDocs(examsQ),
+      // Only exams assigned to the student's own groups, never the whole catalogue.
+      const examSnaps = await Promise.all(
+        chunk(groupIds, IN_CHUNK).map(ids =>
+          getDocs(query(
+            collection(db, 'exams'),
+            where('isPublished', '==', true),
+            where('groupIds', 'array-contains-any', ids),
+          ))
+        )
+      );
+      const [attemptsSnap, myGroups] = await Promise.all([
         getDocs(attemptsQ),
+        fetchGroupsByIds(groupIds),
       ]);
 
-      const loadedExams = examsSnap.docs
+      const seen = new Set<string>();
+      const loadedExams = examSnaps
+        .flatMap(snap => snap.docs)
         .map(doc => ({ id: doc.id, ...doc.data() } as Exam))
         .filter(exam => {
+          if (seen.has(exam.id)) return false;
+          seen.add(exam.id);
           if (exam.visibility === 'link') return false;
           const expMs = toMillis(exam.expiresAt);
           if (expMs && expMs <= now) return false;
           return true;
         });
+      setGroups(myGroups);
       const attemptsMap: Record<string, Attempt> = {};
 
       attemptsSnap.docs.forEach(doc => {
@@ -56,6 +91,42 @@ export default function StudentDashboard() {
     }
   }, [user]);
 
+  // An invite link opened before sign-in leaves its code in localStorage.
+  useEffect(() => {
+    if (!user || user.role !== 'student' || pendingHandledRef.current) return;
+    const code = peekPendingJoinCode();
+    if (!code) return;
+    pendingHandledRef.current = true;
+    joinGroup(code)
+      .then(group => toast.success(`Joined ${group.name}`))
+      .catch(err => toast.error(err instanceof JoinGroupError ? err.message : 'Could not join the group'))
+      .finally(clearPendingJoinCode);
+  }, [user, joinGroup]);
+
+  const handleJoin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCode.trim()) return;
+    setJoining(true);
+    try {
+      const group = await joinGroup(joinCode);
+      toast.success(`Joined ${group.name}`);
+      setJoinCode('');
+    } catch (err) {
+      toast.error(err instanceof JoinGroupError ? err.message : 'Could not join the group');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const handleLeave = async (group: Group) => {
+    if (!window.confirm(`Leave "${group.name}"?`)) return;
+    try {
+      await leaveGroup(group.id);
+    } catch {
+      toast.error('Could not leave the group');
+    }
+  };
+
   useEffect(() => {
     fetchData();
     const handleFocus = () => {
@@ -66,6 +137,9 @@ export default function StudentDashboard() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchData]);
+
+  const examGroupNames = (exam: Exam) =>
+    groups.filter(g => exam.groupIds?.includes(g.id)).map(g => g.name).join(', ');
 
   const filteredExams = exams.filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()));
   const pastAttempts = Object.values(attempts)
@@ -85,6 +159,44 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-8 pb-10">
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
+        <form onSubmit={handleJoin} className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            value={joinCode}
+            onChange={e => setJoinCode(e.target.value)}
+            placeholder="Group code from your teacher, e.g. ABCD-2345"
+            autoCapitalize="characters"
+            autoComplete="off"
+            className="flex-1 px-4 py-2 border border-slate-300 rounded-md min-h-[44px] font-mono"
+          />
+          <button
+            type="submit"
+            disabled={joining || !joinCode.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md min-h-[44px] hover:bg-blue-700 disabled:opacity-50"
+          >
+            {joining ? 'Joining...' : 'Join group'}
+          </button>
+        </form>
+        {groups.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {groups.map(group => (
+              <span key={group.id} className="inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-full bg-slate-100 text-sm text-slate-700">
+                {group.name}
+                <button
+                  type="button"
+                  onClick={() => handleLeave(group)}
+                  aria-label={`Leave ${group.name}`}
+                  className="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-500"
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <h2 className="text-2xl font-bold text-slate-800">Available Exams</h2>
@@ -105,7 +217,11 @@ export default function StudentDashboard() {
         </div>
 
         {filteredExams.length === 0 ? (
-          <p className="text-slate-500">No exams available at the moment.</p>
+          <p className="text-slate-500">
+            {groups.length === 0
+              ? 'Join a group with the code from your teacher to see your exams.'
+              : 'No exams available at the moment.'}
+          </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredExams.map(exam => {
@@ -133,6 +249,9 @@ export default function StudentDashboard() {
                     <p className="text-slate-500 text-sm mb-4 line-clamp-2 min-h-[40px]">
                       {exam.description || 'No description provided.'}
                     </p>
+                    {examGroupNames(exam) && (
+                      <p className="text-xs text-slate-400 -mt-2 mb-3 line-clamp-1">{examGroupNames(exam)}</p>
+                    )}
                     <div className="space-y-1 mb-6 text-sm text-slate-600">
                       <div className="flex justify-between">
                         <span>Time Limit:</span>

@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { collection, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { parseExamFile, ParsedQuestion } from '@/lib/parser';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { commitInChunks, expiryFromNow, EXAM_TTL_DAYS } from '@/lib/examOps';
+import { fetchOwnedGroups } from '@/lib/groups';
+import { Group } from '@/types';
+import AudiencePicker, { Audience } from '@/components/AudiencePicker';
 import { useRouter } from 'next/navigation';
 import { FileText, HelpCircle, AlertTriangle, CheckCircle } from 'lucide-react';
 
@@ -22,6 +25,19 @@ export default function CustomTestImporter() {
   const [numVariants, setNumVariants] = useState(1);
   const [shuffle, setShuffle] = useState(false);
   const [publishImmediately, setPublishImmediately] = useState(true);
+
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [audience, setAudience] = useState<Audience>('groups');
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchOwnedGroups(user.uid)
+      .then(setGroups)
+      .catch(error => console.error('Failed to load groups', error))
+      .finally(() => setGroupsLoading(false));
+  }, [user]);
 
   const [rangeStart, setRangeStart] = useState(1);
   const [rangeEnd, setRangeEnd] = useState(1);
@@ -89,6 +105,11 @@ export default function CustomTestImporter() {
       return;
     }
 
+    if (audience === 'groups' && selectedGroups.length === 0) {
+      toast.error('Pick at least one group, or choose "Anyone with the link".');
+      return;
+    }
+
     setIsPublishing(true);
     const loadingToast = toast.loading('Importing exam in background...');
 
@@ -109,7 +130,8 @@ export default function CustomTestImporter() {
         expiresAt,
         createdBy: user.uid,
         createdByName: user.fullName || user.displayName,
-        visibility: 'listed',
+        visibility: audience === 'groups' ? 'listed' : 'link',
+        groupIds: audience === 'groups' ? selectedGroups : [],
       });
       await initialBatch.commit();
 
@@ -359,8 +381,18 @@ export default function CustomTestImporter() {
 
            <label className="flex items-center space-x-2 cursor-pointer min-h-[44px]">
              <input type="checkbox" checked={publishImmediately} onChange={e => setPublishImmediately(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
-             <span className="text-sm font-medium text-slate-700">Publish immediately (visible to students if &apos;listed&apos;)</span>
+             <span className="text-sm font-medium text-slate-700">Publish immediately</span>
            </label>
+        </div>
+
+        <div className="pt-4 border-t border-slate-100">
+          <AudiencePicker
+            groups={groups}
+            loading={groupsLoading}
+            audience={audience}
+            selected={selectedGroups}
+            onChange={(a, sel) => { setAudience(a); setSelectedGroups(sel); }}
+          />
         </div>
 
         <button

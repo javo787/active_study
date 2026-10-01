@@ -9,22 +9,61 @@ service cloud.firestore {
     function isAdmin() { return signedIn() && myRole() == 'admin'; }
     function isTeacher() { return signedIn() && myRole() == 'teacher'; }
 
+    // Group membership: users/{uid}.groupIds holds the join codes (= groups/{code} ids).
+    function myGroups() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('groupIds', []);
+    }
+    // An exam with no groupIds is open to anyone who has its link (link-only exams, legacy exams).
+    function inAudience(exam) {
+      return exam.get('groupIds', []).size() == 0 || myGroups().hasAny(exam.get('groupIds', []));
+    }
+
+    // A user may only append ONE group that exists (knowing the code is the invitation),
+    // or remove groups. Nothing else can change groupIds.
+    function groupsChangeAllowed() {
+      let before = resource.data.get('groupIds', []);
+      let after = request.resource.data.get('groupIds', []);
+      return after.toSet().difference(before.toSet()).size() == 0
+          || (after.size() == before.size() + 1
+              && after.size() <= 30
+              && after[0:before.size()] == before
+              && exists(/databases/$(database)/documents/groups/$(after[before.size()])));
+    }
+
     match /users/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow list: if isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
-                    && request.resource.data.role == 'student';
+                    && request.resource.data.role == 'student'
+                    && request.resource.data.get('groupIds', []).size() == 0;
       allow update: if signedIn() && (
         (request.auth.uid == userId
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+          && groupsChangeAllowed())
         || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    // Class groups. The document id is the join code, so `get` is open to signed-in users
+    // (they need the code to know the id) while `list` is limited to the owner.
+    match /groups/{groupId} {
+      function isGroupOwner() { return isTeacher() && resource.data.ownerId == request.auth.uid; }
+
+      allow get: if signedIn();
+      allow list: if isAdmin() || isGroupOwner();
+      allow create: if (isAdmin() || isTeacher())
+                    && request.resource.data.ownerId == request.auth.uid
+                    && groupId.matches('^[A-HJ-NP-Z2-9]{8}$');
+      allow update: if isAdmin()
+                    || (isGroupOwner() && request.resource.data.ownerId == resource.data.ownerId);
+      allow delete: if isAdmin() || isGroupOwner();
     }
 
     match /exams/{examId} {
       function isOwner() { return isTeacher() && resource.data.createdBy == request.auth.uid; }
 
-      allow get: if signedIn() && (resource == null || resource.data.isPublished == true
+      allow get: if signedIn() && (resource == null
+                                   || (resource.data.isPublished == true && inAudience(resource.data))
                                    || isAdmin() || isOwner());
       allow list: if signedIn() && (resource.data.isPublished == true || isAdmin() || isOwner());
       allow create: if (isAdmin() || isTeacher())
@@ -37,7 +76,7 @@ service cloud.firestore {
         function examNow() { return get(/databases/$(database)/documents/exams/$(examId)).data; }
         function examAfter() { return getAfter(/databases/$(database)/documents/exams/$(examId)).data; }
         function canRead() {
-          return signedIn() && (examNow().isPublished == true || isAdmin()
+          return signedIn() && ((examNow().isPublished == true && inAudience(examNow())) || isAdmin()
                  || (isTeacher() && examNow().createdBy == request.auth.uid));
         }
         function canWrite() {
@@ -70,7 +109,8 @@ service cloud.firestore {
         && request.resource.data.studentId == request.auth.uid
         && request.resource.data.status == 'in_progress'
         && request.resource.data.teacherId ==
-             get(/databases/$(database)/documents/exams/$(request.resource.data.examId)).data.createdBy;
+             get(/databases/$(database)/documents/exams/$(request.resource.data.examId)).data.createdBy
+        && inAudience(get(/databases/$(database)/documents/exams/$(request.resource.data.examId)).data);
       allow update: if signedIn() && (
         (isMine() && resource.data.status == 'in_progress'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([

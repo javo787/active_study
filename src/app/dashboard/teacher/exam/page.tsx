@@ -4,10 +4,12 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { collection, doc, getDoc, getDocs, updateDoc, writeBatch, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Exam, Question } from '@/types';
+import { Exam, Group, Question } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { deleteExamCascade, duplicateExam, validateExamForPublish } from '@/lib/examOps';
+import { fetchOwnedGroups } from '@/lib/groups';
+import AudiencePicker, { Audience } from '@/components/AudiencePicker';
 import Link from 'next/link';
 import { Copy, Save, Share2, Plus, Trash2, Play, AlertCircle, Edit } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -34,7 +36,10 @@ function ExamManager() {
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleOptions, setShuffleOptions] = useState(false);
   const [showAnswers, setShowAnswers] = useState(false);
-  const [visibility, setVisibility] = useState<'listed' | 'link'>('listed');
+  const [audience, setAudience] = useState<Audience>('groups');
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [ownedGroups, setOwnedGroups] = useState<Group[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
   const [maxViolations, setMaxViolations] = useState<number | ''>(3);
   const [proctoringEnabled, setProctoringEnabled] = useState(true);
 
@@ -73,7 +78,8 @@ function ExamManager() {
         setShuffleQuestions(!!data.shuffleQuestions);
         setShuffleOptions(!!data.shuffleOptions);
         setShowAnswers(!!data.showAnswers);
-        setVisibility(data.visibility || 'listed');
+        setAudience(data.visibility === 'link' ? 'link' : 'groups');
+        setSelectedGroups(data.groupIds ?? []);
         setMaxViolations(data.maxViolations ?? 3);
         setProctoringEnabled(data.proctoringEnabled !== false);
 
@@ -150,8 +156,22 @@ function ExamManager() {
     fetchQuestions();
   }, [id, activeVariant]);
 
+  useEffect(() => {
+    if (!user) return;
+    fetchOwnedGroups(user.uid)
+      .then(setOwnedGroups)
+      .catch(error => console.error('Failed to load groups', error))
+      .finally(() => setGroupsLoading(false));
+  }, [user]);
+
   const handleSaveSettings = async () => {
     if (!id || !exam) return;
+    if (audience === 'groups' && selectedGroups.length === 0) {
+      toast.error('Pick at least one group, or choose "Anyone with the link".');
+      return;
+    }
+    const visibility: 'listed' | 'link' = audience === 'groups' ? 'listed' : 'link';
+    const groupIds = audience === 'groups' ? selectedGroups : [];
     setSaving(true);
     try {
       await updateDoc(doc(db, 'exams', id), {
@@ -163,11 +183,12 @@ function ExamManager() {
         shuffleOptions,
         showAnswers,
         visibility,
+        groupIds,
         maxViolations: maxViolations === '' ? 3 : Number(maxViolations),
         proctoringEnabled,
         totalVariants: variants.length,
       });
-      setExam(prev => prev ? { ...prev, title, description, timeLimit, passingPercent: passingPercent ? Number(passingPercent) : null, shuffleQuestions, shuffleOptions, showAnswers, visibility, maxViolations: maxViolations === '' ? 3 : Number(maxViolations), proctoringEnabled, totalVariants: variants.length } : null);
+      setExam(prev => prev ? { ...prev, title, description, timeLimit, passingPercent: passingPercent ? Number(passingPercent) : null, shuffleQuestions, shuffleOptions, showAnswers, visibility, groupIds, maxViolations: maxViolations === '' ? 3 : Number(maxViolations), proctoringEnabled, totalVariants: variants.length } : null);
       setIsDirty(false);
       toast.success('Settings saved');
     } catch (err: unknown) {
@@ -496,10 +517,15 @@ function ExamManager() {
                   <input type="checkbox" checked={showAnswers} onChange={e => {setShowAnswers(e.target.checked); setIsDirty(true);}} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
                   <span className="text-sm text-slate-700">Show answers after submit</span>
                 </label>
-                <label className="flex items-center space-x-2 min-h-[44px] cursor-pointer">
-                  <input type="checkbox" checked={visibility === 'listed'} onChange={e => {setVisibility(e.target.checked ? 'listed' : 'link'); setIsDirty(true);}} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-5 h-5" />
-                  <span className="text-sm text-slate-700">List on student dashboard</span>
-                </label>
+                <div className="pt-2">
+                  <AudiencePicker
+                    groups={ownedGroups}
+                    loading={groupsLoading}
+                    audience={audience}
+                    selected={selectedGroups}
+                    onChange={(a, sel) => { setAudience(a); setSelectedGroups(sel); setIsDirty(true); }}
+                  />
+                </div>
               </div>
             </div>
 
