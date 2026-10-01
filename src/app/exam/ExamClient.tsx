@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { doc, getDoc, getDocs, collection, setDoc, serverTimestamp, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, setDoc, serverTimestamp, updateDoc, increment, arrayUnion, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useProctoring } from '@/hooks/useProctoring';
 import { Exam, Question, Attempt } from '@/types';
@@ -59,6 +59,7 @@ export default function ExamTakingInterface() {
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const resumeCountedRef = useRef<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'offline'>('saved');
   const [showNavigator, setShowNavigator] = useState(false);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
@@ -233,6 +234,55 @@ export default function ExamTakingInterface() {
              return;
           }
 
+          // Re-entering an in-progress exam (tab closed / page reloaded) counts as leaving it.
+          let resumedAttempt = attemptData;
+          const proctored = examData.proctoringEnabled !== false;
+          const violationLimit = examData.maxViolations ?? 3;
+          if (proctored && resumeCountedRef.current !== attemptData.id) {
+            resumeCountedRef.current = attemptData.id;
+            const attemptRef = doc(db, 'attempts', attemptData.id);
+
+            if (attemptData.resumeGraceOnce) {
+              // Teacher reset this attempt: this re-entry is free, then the flag is cleared.
+              updateDoc(attemptRef, { resumeGraceOnce: false }).catch(() => {});
+            } else {
+              const reason = 'reopened_exam';
+              const newCount = (attemptData.violationCount ?? 0) + 1;
+              const updates: Record<string, unknown> = {
+                violationCount: increment(1),
+                violationReason: reason,
+                lastViolationAt: serverTimestamp(),
+                violations: arrayUnion({ reason, at: Timestamp.now() }),
+              };
+
+              if (newCount >= violationLimit) {
+                const score = loadedQuestions.filter(q => (attemptData.answers || {})[q.id] === q.correctOption).length;
+                updates.status = 'flagged';
+                updates.finishedAt = serverTimestamp();
+                updates.score = score;
+                updates.totalQuestions = loadedQuestions.length;
+                updateDoc(attemptRef, updates).catch(err => console.error('Failed to record violation:', err));
+                setAttempt({
+                  ...attemptData,
+                  status: 'flagged',
+                  violationCount: newCount,
+                  violationReason: reason,
+                  score,
+                  totalQuestions: loadedQuestions.length,
+                  finishedAt: Timestamp.now(),
+                });
+                setErrorMsg(`Your attempt was stopped (${reason}).`);
+                setStatus('terminated');
+                return;
+              }
+
+              updateDoc(attemptRef, updates).catch(err => console.error('Failed to record violation:', err));
+              resumedAttempt = { ...attemptData, violationCount: newCount, violationReason: reason };
+              toast.error(`Re-entering the exam was recorded as a violation (${newCount} of ${violationLimit}).`);
+            }
+          }
+
+          setAttempt(resumedAttempt);
           setDeadline(computedDeadline);
           setStatus('in_progress');
         }

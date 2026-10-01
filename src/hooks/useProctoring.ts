@@ -33,10 +33,11 @@ export const useProctoring = ({
   const leftAtRef = useRef<number | null>(null);
   const violationCountRef = useRef(0);
   const lastToastRef = useRef<number>(0);
-  const isRegisteringRef = useRef(false);
+  const terminatedRef = useRef(false);
 
   useEffect(() => {
     violationCountRef.current = initialViolationCount;
+    terminatedRef.current = false;
   }, [attemptId, initialViolationCount]);
 
   useEffect(() => {
@@ -47,45 +48,45 @@ export const useProctoring = ({
   useEffect(() => {
     if (isPreviewMode || enabled === false) return;
 
-    const registerViolation = async (reason: string) => {
+    const registerViolation = (reason: string) => {
       const id = attemptIdRef.current;
       if (!id || statusRef.current === 'completed' || statusRef.current === 'flagged' || statusRef.current === 'terminated') return;
-      if (isRegisteringRef.current) return;
+      if (terminatedRef.current) return;
 
-      isRegisteringRef.current = true;
+      // Count on the client immediately: a slow or offline connection must never
+      // swallow a violation or delay the warning shown to the student.
       const newCount = violationCountRef.current + 1;
       violationCountRef.current = newCount;
+      const shouldTerminate = newCount >= maxViolations;
+      if (shouldTerminate) terminatedRef.current = true;
 
-      try {
-        const updates: Record<string, unknown> = {
-          violationCount: increment(1),
-          violationReason: reason,
-          lastViolationAt: serverTimestamp(),
-          violations: arrayUnion({ reason, at: Timestamp.now() })
-        };
+      const updates: Record<string, unknown> = {
+        violationCount: increment(1),
+        violationReason: reason,
+        lastViolationAt: serverTimestamp(),
+        violations: arrayUnion({ reason, at: Timestamp.now() })
+      };
 
-        if (newCount >= maxViolations) {
-          updates.status = 'flagged';
-          updates.finishedAt = serverTimestamp();
-          if (computeScoreSnapshot) {
-            const snap = computeScoreSnapshot();
-            updates.score = snap.score;
-            updates.totalQuestions = snap.totalQuestions;
-          }
+      if (shouldTerminate) {
+        updates.status = 'flagged';
+        updates.finishedAt = serverTimestamp();
+        if (computeScoreSnapshot) {
+          const snap = computeScoreSnapshot();
+          updates.score = snap.score;
+          updates.totalQuestions = snap.totalQuestions;
         }
+      }
 
-        await updateDoc(doc(db, 'attempts', id), updates);
+      // Fire and forget. Firestore queues writes and flushes them in order once the
+      // connection is back, so we do not block the UI (or later violations) on the ack.
+      updateDoc(doc(db, 'attempts', id), updates).catch((error) => {
+        console.error('Failed to record violation:', error);
+      });
 
-        if (newCount >= maxViolations) {
-          onTerminate(reason);
-        } else {
-          onWarning(newCount, maxViolations, reason);
-        }
-      } catch (error) {
-        console.error('Failed to update attempt status on violation:', error);
-        violationCountRef.current -= 1; // Revert optimistic update on failure
-      } finally {
-        isRegisteringRef.current = false;
+      if (shouldTerminate) {
+        onTerminate(reason);
+      } else {
+        onWarning(newCount, maxViolations, reason);
       }
     };
 
