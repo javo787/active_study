@@ -26,6 +26,58 @@ function formatDuration(start: Date | Timestamp | undefined | null, end: Date | 
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
+// Attempts whose time limit has passed but that were never submitted (student closed the
+// tab and never came back) stay "in_progress" forever. Close them here, scoring the answers
+// that were auto-saved, so the teacher sees real results instead of a stale status.
+const EXPIRY_GRACE_MS = 60 * 1000;
+
+async function closeExpiredAttempts(allAttempts: Attempt[], exams: Exam[], now: number): Promise<Attempt[]> {
+  const examMap = new Map(exams.map(e => [e.id, e]));
+
+  const expired = allAttempts.filter(a => {
+    if (a.status !== 'in_progress' || !a.variantId) return false;
+    const exam = examMap.get(a.examId);
+    const start = toMillis(a.startedAt);
+    if (!exam?.timeLimit || !start) return false;
+    return start + exam.timeLimit * 60000 + EXPIRY_GRACE_MS < now;
+  });
+  if (expired.length === 0) return allAttempts;
+
+  // Load each distinct variant's questions once.
+  const variantKeys = Array.from(new Set(expired.map(a => `${a.examId}/${a.variantId}`)));
+  const questionsByVariant = new Map<string, Question[]>();
+  await Promise.all(variantKeys.map(async key => {
+    try {
+      const snap = await getDocs(collection(db, `exams/${key}/questions`));
+      questionsByVariant.set(key, snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
+    } catch (error) {
+      console.error('Failed to load questions for', key, error);
+    }
+  }));
+
+  const closed = new Map<string, Attempt>();
+  await Promise.all(expired.map(async a => {
+    const questions = questionsByVariant.get(`${a.examId}/${a.variantId}`);
+    if (!questions) return;
+    const exam = examMap.get(a.examId)!;
+    const finishedMs = toMillis(a.startedAt)! + exam.timeLimit * 60000;
+    const score = questions.filter(q => (a.answers || {})[q.id] === q.correctOption).length;
+    try {
+      await updateDoc(doc(db, 'attempts', a.id), {
+        status: 'completed',
+        finishedAt: Timestamp.fromMillis(finishedMs),
+        score,
+        totalQuestions: questions.length,
+      });
+      closed.set(a.id, { ...a, status: 'completed', finishedAt: Timestamp.fromMillis(finishedMs), score, totalQuestions: questions.length });
+    } catch (error) {
+      console.error('Failed to close expired attempt', a.id, error);
+    }
+  }));
+
+  return allAttempts.map(a => closed.get(a.id) ?? a);
+}
+
 export function AttemptsContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
@@ -94,6 +146,10 @@ export function AttemptsContent() {
         });
 
       setAttempts(allAttempts);
+      // Close timed-out attempts in the background and refresh the list when done.
+      closeExpiredAttempts(allAttempts, examsData, now)
+        .then(updated => { if (updated !== allAttempts) setAttempts(updated); })
+        .catch(error => console.error('Failed to close expired attempts:', error));
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load attempts data.');
@@ -185,9 +241,10 @@ export function AttemptsContent() {
       await updateDoc(doc(db, 'attempts', attemptId), {
         status: 'in_progress',
         violationReason: '',
-        violationCount: 0
+        violationCount: 0,
+        resumeGraceOnce: true
       });
-      setAttempts(attempts.map(a => a.id === attemptId ? { ...a, status: 'in_progress', violationReason: '', violationCount: 0 } : a));
+      setAttempts(attempts.map(a => a.id === attemptId ? { ...a, status: 'in_progress', violationReason: '', violationCount: 0, resumeGraceOnce: true } : a));
       toast.success('Attempt reset successfully.');
     } catch (error) {
       console.error('Error resetting attempt:', error);

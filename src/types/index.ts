@@ -71,6 +71,7 @@ export interface Attempt {
   lastViolationAt?: Date | Timestamp;
   violationReason?: string;
   violations?: { reason: string; at: Date | Timestamp }[];
+  resumeGraceOnce?: boolean; // set by teacher on reset: the next re-entry is not counted as a violation
   isPreview?: boolean;
   expiresAt?: Date | Timestamp;
 }
