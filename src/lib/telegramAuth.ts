@@ -37,6 +37,21 @@ function getAuthBase(): AuthBase {
 const STORAGE_KEY = 'tg_login_session_v1';
 const POLL_INTERVAL_MS = 2000;
 const REQUEST_ID_HEADER = 'x-edu-request-id';
+// After this many 5xx answers in a row the server is broken, not slow: stop and say so instead of spinning for minutes.
+const MAX_CONSECUTIVE_SERVER_ERRORS = 5;
+
+/**
+ * Headers that identify the invocation on the platform side. A 500 without X-Edu-Request-Id means the route
+ * crashed before our own error handling ran; x-vercel-id is what to search for in the Vercel runtime logs.
+ */
+function platformHeaders(res: Response) {
+  return {
+    vercelId: res.headers.get('x-vercel-id'),
+    vercelError: res.headers.get('x-vercel-error'),
+    matchedPath: res.headers.get('x-matched-path'),
+    server: res.headers.get('server'),
+  };
+}
 
 export interface TelegramLoginSession {
   token: string;
@@ -177,6 +192,7 @@ async function loggedFetch(step: string, url: string, init: RequestInit): Promis
       type: res.type,
       contentType: res.headers.get('content-type'),
       ref: res.headers.get(REQUEST_ID_HEADER),
+      ...platformHeaders(res),
       tookMs: Math.round(performance.now() - startedAt),
     });
     return res;
@@ -309,6 +325,7 @@ export async function waitForTelegramLogin(
   let polls = 0;
   let lastState = '';
   let consecutiveFailures = 0;
+  let serverErrors = 0;
 
   // Page lifecycle: a reload or a tab switch while the user is in Telegram explains many "it just hangs" cases.
   const onVisibility = () => tgLog('info', `page:visibility-${document.visibilityState}`);
@@ -344,6 +361,7 @@ export async function waitForTelegramLogin(
 
         if (res.ok) {
           consecutiveFailures = 0;
+          serverErrors = 0;
           const { json, snippet } = await readBody('poll', res);
           const state = typeof json?.status === 'string' ? json.status : 'unparsable';
           if (state !== lastState || verbose) {
@@ -370,14 +388,27 @@ export async function waitForTelegramLogin(
         } else {
           consecutiveFailures++;
           const { json, snippet } = await readBody('poll', res);
-          tgLog(res.status === 429 ? 'warn' : 'error', 'poll:http-error (will retry)', {
+          if (res.status >= 500) serverErrors++;
+          const giveUp = serverErrors >= MAX_CONSECUTIVE_SERVER_ERRORS;
+          tgLog(res.status === 429 ? 'warn' : 'error', giveUp ? 'poll:giving-up' : 'poll:http-error (will retry)', {
             poll: polls,
             status: res.status,
             ref,
+            ...platformHeaders(res),
             serverError: json?.error ?? null,
             bodySnippet: json ? undefined : snippet,
             consecutiveFailures,
+            ...(res.status >= 500 && !ref
+              ? { meaning: 'the server answered 500 WITHOUT X-Edu-Request-Id: the /check route crashed before its own error handling (module failed to load or an exception outside the handler). Search the Vercel runtime logs for the x-vercel-id above.' }
+              : {}),
           });
+          if (giveUp) {
+            clearTelegramSession();
+            throw new TelegramLoginError('server', `Check failed with HTTP ${res.status} ${serverErrors} times in a row`, {
+              status: res.status,
+              ref: ref || platformHeaders(res).vercelId,
+            });
+          }
         }
       } catch (err) {
         if (err instanceof TelegramLoginError) throw err;

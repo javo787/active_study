@@ -33,7 +33,11 @@ export default function LoginPage() {
       if (err instanceof TelegramLoginError && err.code === 'expired') {
         toast.error('The Telegram link expired. Please try again.');
       } else {
-        toast.error('Telegram sign-in failed. Open Diagnostics below for details.');
+        toast.error(
+          err instanceof TelegramLoginError && err.code === 'server'
+            ? describeStartError(err)
+            : 'Telegram sign-in failed. Open Diagnostics below for details.'
+        );
       }
       setTgSession(null);
     }
