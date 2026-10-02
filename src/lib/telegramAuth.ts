@@ -1,9 +1,15 @@
 // Client side of "Sign in with Telegram". The server part lives in duxtur-portal
 // (/api/edu-auth/telegram/start and /check) and hands back a Firebase custom token.
+//
+// Every step is logged through tgLog (console + copyable panel on the login page).
+// Tokens and secrets are never logged in full.
+
+import { describeError, tgLog, tgNewAttempt, tokenRef } from '@/lib/tgLog';
 
 const AUTH_BASE = (process.env.NEXT_PUBLIC_EDU_AUTH_BASE_URL || 'https://duxtur.org').replace(/\/$/, '');
 const STORAGE_KEY = 'tg_login_session_v1';
 const POLL_INTERVAL_MS = 2000;
+const REQUEST_ID_HEADER = 'x-edu-request-id';
 
 export interface TelegramLoginSession {
   token: string;
@@ -12,23 +18,63 @@ export interface TelegramLoginSession {
   expiresAt: number; // epoch ms
 }
 
+export type TelegramLoginErrorCode =
+  | 'expired'
+  | 'cancelled'
+  | 'failed'
+  | 'network' // fetch itself failed: offline, CORS/CSP, DNS, blocked
+  | 'server' // 5xx or another unexpected HTTP status
+  | 'rate_limited' // 429
+  | 'bad_response'; // 200 but not the JSON we expect
+
+export interface TelegramLoginErrorDetail {
+  status?: number;
+  /** Server request id (X-Edu-Request-Id): find the matching line in the Vercel logs. */
+  ref?: string | null;
+}
+
 export class TelegramLoginError extends Error {
-  constructor(public code: 'expired' | 'cancelled' | 'failed', message: string) {
+  constructor(
+    public code: TelegramLoginErrorCode,
+    message: string,
+    public detail: TelegramLoginErrorDetail = {}
+  ) {
     super(message);
+  }
+}
+
+/** Human-readable message for the start step, with the server ref so it can be reported. */
+export function describeStartError(err: unknown): string {
+  if (!(err instanceof TelegramLoginError)) return 'Could not start Telegram sign-in.';
+  const ref = err.detail.ref ? ` (ref ${err.detail.ref})` : '';
+  switch (err.code) {
+    case 'network':
+      return `Could not reach the sign-in server. Check your connection.${ref}`;
+    case 'rate_limited':
+      return 'Too many attempts. Wait a minute and try again.';
+    case 'server':
+      return `Telegram sign-in is unavailable right now (error ${err.detail.status ?? '?'})${ref}. Open Diagnostics below.`;
+    case 'bad_response':
+      return `The sign-in server sent an unexpected answer${ref}. Open Diagnostics below.`;
+    default:
+      return `Could not start Telegram sign-in.${ref}`;
   }
 }
 
 function saveSession(session: TelegramLoginSession) {
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-  } catch {
+    tgLog('info', 'session:saved', { tokenRef: tokenRef(session.token), expiresInSec: Math.round((session.expiresAt - Date.now()) / 1000) });
+  } catch (err) {
     // Private mode etc.: login still works, it just cannot resume after a reload.
+    tgLog('warn', 'session:save-failed (login works, but cannot resume after a reload)', describeError(err));
   }
 }
 
 export function clearTelegramSession() {
   try {
     sessionStorage.removeItem(STORAGE_KEY);
+    tgLog('info', 'session:cleared');
   } catch {}
 }
 
@@ -36,28 +82,178 @@ export function clearTelegramSession() {
 export function loadTelegramSession(): TelegramLoginSession | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      tgLog('info', 'session:none-to-resume');
+      return null;
+    }
     const s = JSON.parse(raw) as TelegramLoginSession;
     if (!s.token || !s.pollSecret || !s.botUrl || s.expiresAt <= Date.now()) {
+      tgLog('warn', 'session:stored-but-invalid-or-expired', {
+        tokenRef: tokenRef(s.token),
+        hasPollSecret: !!s.pollSecret,
+        hasBotUrl: !!s.botUrl,
+        expiredSecondsAgo: s.expiresAt ? Math.round((Date.now() - s.expiresAt) / 1000) : null,
+      });
       clearTelegramSession();
       return null;
     }
+    tgLog('info', 'session:resumed-after-reload', {
+      tokenRef: tokenRef(s.token),
+      expiresInSec: Math.round((s.expiresAt - Date.now()) / 1000),
+    });
     return s;
-  } catch {
+  } catch (err) {
+    tgLog('warn', 'session:load-failed', describeError(err));
     return null;
   }
 }
 
-export async function startTelegramLogin(): Promise<TelegramLoginSession> {
-  const res = await fetch(`${AUTH_BASE}/api/edu-auth/telegram/start`, { method: 'POST' });
-  if (!res.ok) throw new TelegramLoginError('failed', 'Could not start Telegram sign-in');
-  const data = await res.json();
-  const session: TelegramLoginSession = {
-    token: data.token,
-    pollSecret: data.pollSecret,
-    botUrl: data.botUrl,
-    expiresAt: Date.now() + (data.expiresInSec ?? 300) * 1000,
+function snapshotEnvironment() {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return {
+    pageUrl: typeof window !== 'undefined' ? window.location.href : '',
+    pageOrigin: origin,
+    authBase: AUTH_BASE,
+    authBaseSource: process.env.NEXT_PUBLIC_EDU_AUTH_BASE_URL ? 'NEXT_PUBLIC_EDU_AUTH_BASE_URL' : 'default (https://duxtur.org)',
+    sameOrigin: AUTH_BASE === origin,
+    basePath: process.env.NEXT_PUBLIC_BASE_PATH || '(none)',
+    firebaseProjectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '(unset)',
+    online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+    secureContext: typeof window !== 'undefined' ? window.isSecureContext : null,
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
   };
+}
+
+function networkHint(): string {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'browser reports it is offline';
+  if (typeof window !== 'undefined' && AUTH_BASE !== window.location.origin) {
+    return `AUTH_BASE (${AUTH_BASE}) is not the page origin (${window.location.origin}): CSP connect-src or CORS probably blocks it`;
+  }
+  return 'same-origin request failed before any HTTP answer: connectivity/DNS, an ad-blocker or extension, or the server dropped the connection';
+}
+
+/** fetch + a log line for the request, the response (status, timing, redirects, request id) or the failure. */
+async function loggedFetch(step: string, url: string, init: RequestInit): Promise<Response> {
+  const startedAt = performance.now();
+  tgLog('info', `${step}:request`, { method: init.method, url });
+  try {
+    const res = await fetch(url, init);
+    tgLog(res.ok ? 'info' : 'warn', `${step}:response`, {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      redirected: res.redirected,
+      finalUrl: res.url,
+      type: res.type,
+      contentType: res.headers.get('content-type'),
+      ref: res.headers.get(REQUEST_ID_HEADER),
+      tookMs: Math.round(performance.now() - startedAt),
+    });
+    return res;
+  } catch (err) {
+    if (init.signal?.aborted) {
+      tgLog('info', `${step}:aborted`, { tookMs: Math.round(performance.now() - startedAt) });
+    } else {
+      tgLog('error', `${step}:network-error`, {
+        ...describeError(err),
+        hint: networkHint(),
+        tookMs: Math.round(performance.now() - startedAt),
+      });
+    }
+    throw err;
+  }
+}
+
+async function readBody(step: string, res: Response): Promise<{ json: Record<string, unknown> | null; snippet: string }> {
+  let text = '';
+  try {
+    text = await res.text();
+  } catch (err) {
+    tgLog('error', `${step}:body-read-failed`, describeError(err));
+    return { json: null, snippet: '' };
+  }
+  const snippet = text.slice(0, 300);
+  try {
+    const parsed = JSON.parse(text);
+    return { json: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null, snippet };
+  } catch {
+    tgLog('warn', `${step}:body-not-json`, {
+      contentType: res.headers.get('content-type'),
+      snippet,
+      note: snippet.trim().startsWith('<')
+        ? 'got HTML instead of JSON: the request probably hit a page or an error screen, not the API route'
+        : undefined,
+    });
+    return { json: null, snippet };
+  }
+}
+
+export async function startTelegramLogin(): Promise<TelegramLoginSession> {
+  const attempt = tgNewAttempt();
+  tgLog('info', 'start:begin', { attempt, ...snapshotEnvironment() });
+
+  const url = `${AUTH_BASE}/api/edu-auth/telegram/start`;
+  let res: Response;
+  try {
+    res = await loggedFetch('start', url, { method: 'POST' });
+  } catch (err) {
+    throw new TelegramLoginError('network', err instanceof Error ? err.message : 'Network error');
+  }
+
+  const ref = res.headers.get(REQUEST_ID_HEADER);
+  const { json, snippet } = await readBody('start', res);
+
+  if (!res.ok) {
+    const code: TelegramLoginErrorCode = res.status === 429 ? 'rate_limited' : 'server';
+    tgLog('error', 'start:failed', {
+      status: res.status,
+      ref,
+      serverError: json?.error ?? null,
+      serverRef: json?.ref ?? null,
+      bodySnippet: json ? undefined : snippet,
+      meaning:
+        res.status === 429
+          ? 'rate limit on the server (10 starts per minute per IP)'
+          : res.status >= 500
+            ? 'server error: look up this ref in the Vercel logs (scope edu-tg:start)'
+            : 'unexpected HTTP status',
+    });
+    throw new TelegramLoginError(code, `Start failed with HTTP ${res.status}`, {
+      status: res.status,
+      ref: ref || (typeof json?.ref === 'string' ? json.ref : null),
+    });
+  }
+
+  const data = json as { token?: unknown; pollSecret?: unknown; botUrl?: unknown; expiresInSec?: unknown } | null;
+  const missing = ['token', 'pollSecret', 'botUrl'].filter(k => typeof data?.[k as 'token'] !== 'string' || !data?.[k as 'token']);
+  if (!data || missing.length > 0) {
+    tgLog('error', 'start:bad-response', { missingFields: missing, receivedKeys: data ? Object.keys(data) : null, bodySnippet: data ? undefined : snippet });
+    throw new TelegramLoginError('bad_response', 'Unexpected start response', { status: res.status, ref });
+  }
+
+  const session: TelegramLoginSession = {
+    token: data.token as string,
+    pollSecret: data.pollSecret as string,
+    botUrl: data.botUrl as string,
+    expiresAt: Date.now() + (typeof data.expiresInSec === 'number' ? data.expiresInSec : 300) * 1000,
+  };
+
+  let botHost: string | null = null;
+  let botName: string | null = null;
+  try {
+    const u = new URL(session.botUrl);
+    botHost = u.host;
+    botName = u.pathname.replace('/', '');
+  } catch {}
+  tgLog('info', 'start:ok', {
+    tokenRef: tokenRef(session.token),
+    botHost,
+    botName,
+    expiresInSec: data.expiresInSec ?? '(default 300)',
+    ref,
+  });
+  if (botHost !== 't.me') tgLog('warn', 'start:bot-url-unusual', { botUrl: session.botUrl, expected: 'https://t.me/<bot>?start=login_<token>' });
+
   saveSession(session);
   return session;
 }
@@ -76,34 +272,100 @@ export async function waitForTelegramLogin(
   session: TelegramLoginSession,
   signal?: AbortSignal
 ): Promise<string> {
-  while (Date.now() < session.expiresAt) {
-    if (signal?.aborted) throw new TelegramLoginError('cancelled', 'Cancelled');
-    try {
-      const res = await fetch(`${AUTH_BASE}/api/edu-auth/telegram/check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: session.token, pollSecret: session.pollSecret }),
-        signal,
-      });
-      if (res.status === 404) {
-        clearTelegramSession();
-        throw new TelegramLoginError('expired', 'The sign-in link expired');
+  const url = `${AUTH_BASE}/api/edu-auth/telegram/check`;
+  const ref0 = tokenRef(session.token);
+  tgLog('info', 'poll:begin', { tokenRef: ref0, intervalMs: POLL_INTERVAL_MS, expiresInSec: Math.round((session.expiresAt - Date.now()) / 1000) });
+
+  let polls = 0;
+  let lastState = '';
+  let consecutiveFailures = 0;
+
+  // Page lifecycle: a reload or a tab switch while the user is in Telegram explains many "it just hangs" cases.
+  const onVisibility = () => tgLog('info', `page:visibility-${document.visibilityState}`);
+  const onPageHide = () => tgLog('warn', 'page:pagehide (page is being unloaded or frozen)');
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pagehide', onPageHide);
+
+  try {
+    while (Date.now() < session.expiresAt) {
+      if (signal?.aborted) {
+        tgLog('info', 'poll:cancelled');
+        throw new TelegramLoginError('cancelled', 'Cancelled');
       }
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'approved' && data.customToken) {
+      polls++;
+      // Log the first polls and then every 10th (~20 s); every state change and failure is always logged.
+      const verbose = polls <= 3 || polls % 10 === 0;
+      const startedAt = performance.now();
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: session.token, pollSecret: session.pollSecret }),
+          signal,
+        });
+        const ref = res.headers.get(REQUEST_ID_HEADER);
+        const tookMs = Math.round(performance.now() - startedAt);
+
+        if (res.status === 404) {
+          tgLog('warn', 'poll:gone (404)', { poll: polls, ref, tokenRef: ref0, meaning: 'server does not know this login: expired, already used, or the token was never stored' });
           clearTelegramSession();
-          return data.customToken as string;
+          throw new TelegramLoginError('expired', 'The sign-in link expired', { status: 404, ref });
         }
+
+        if (res.ok) {
+          consecutiveFailures = 0;
+          const { json, snippet } = await readBody('poll', res);
+          const state = typeof json?.status === 'string' ? json.status : 'unparsable';
+          if (state !== lastState || verbose) {
+            tgLog('info', `poll:${state}`, { poll: polls, ref, tookMs, elapsedSec: Math.round((Date.now() - (session.expiresAt - 300000)) / 1000), ...(state === 'unparsable' ? { bodySnippet: snippet } : {}) });
+            lastState = state;
+          }
+          if (json?.status === 'approved' && typeof json.customToken === 'string' && json.customToken) {
+            const serverProjectId = typeof json.projectId === 'string' ? json.projectId : null;
+            const clientProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || null;
+            tgLog('info', 'poll:approved-received-custom-token', { poll: polls, ref, serverProjectId, clientProjectId });
+            if (serverProjectId && clientProjectId && serverProjectId !== clientProjectId) {
+              tgLog('error', 'config:firebase-project-mismatch', {
+                serverProjectId,
+                clientProjectId,
+                meaning: 'the server signs tokens for a different Firebase project than this app uses: signInWithCustomToken will fail (auth/custom-token-mismatch). Fix FIREBASE_SERVICE_ACCOUNT_JSON on Vercel.',
+              });
+            }
+            clearTelegramSession();
+            return json.customToken;
+          }
+          if (json?.status === 'approved') {
+            tgLog('error', 'poll:approved-but-no-custom-token', { poll: polls, ref, receivedKeys: json ? Object.keys(json) : null });
+          }
+        } else {
+          consecutiveFailures++;
+          const { json, snippet } = await readBody('poll', res);
+          tgLog(res.status === 429 ? 'warn' : 'error', 'poll:http-error (will retry)', {
+            poll: polls,
+            status: res.status,
+            ref,
+            serverError: json?.error ?? null,
+            bodySnippet: json ? undefined : snippet,
+            consecutiveFailures,
+          });
+        }
+      } catch (err) {
+        if (err instanceof TelegramLoginError) throw err;
+        if (signal?.aborted) {
+          tgLog('info', 'poll:cancelled');
+          throw new TelegramLoginError('cancelled', 'Cancelled');
+        }
+        // Network hiccup (weak connection): keep trying until the login expires.
+        consecutiveFailures++;
+        tgLog('warn', 'poll:network-error (will retry)', { poll: polls, consecutiveFailures, ...describeError(err), hint: networkHint() });
       }
-      // 429 / 5xx / pending: keep polling.
-    } catch (err) {
-      if (err instanceof TelegramLoginError) throw err;
-      if (signal?.aborted) throw new TelegramLoginError('cancelled', 'Cancelled');
-      // Network hiccup (weak connection): keep trying until the login expires.
+      await sleep(POLL_INTERVAL_MS, signal);
     }
-    await sleep(POLL_INTERVAL_MS, signal);
+    tgLog('warn', 'poll:expired-locally', { polls, meaning: 'the 5-minute window ended without an approval reaching this page' });
+    clearTelegramSession();
+    throw new TelegramLoginError('expired', 'The sign-in link expired');
+  } finally {
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('pagehide', onPageHide);
   }
-  clearTelegramSession();
-  throw new TelegramLoginError('expired', 'The sign-in link expired');
 }

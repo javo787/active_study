@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { LogIn, Send } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { loadTelegramSession, clearTelegramSession, TelegramLoginError, TelegramLoginSession } from '@/lib/telegramAuth';
+import { loadTelegramSession, clearTelegramSession, describeStartError, TelegramLoginError, TelegramLoginSession } from '@/lib/telegramAuth';
+import { describeError, tgLog, tgWatchCsp } from '@/lib/tgLog';
+import TelegramDiagnostics from '@/components/TelegramDiagnostics';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
 
 export default function LoginPage() {
@@ -24,32 +26,39 @@ export default function LoginPage() {
     setTgSession(session);
     try {
       await finishTelegramSignIn(session, controller.signal);
+      tgLog('info', 'flow:finished-signed-in');
     } catch (err) {
       if (err instanceof TelegramLoginError && err.code === 'cancelled') return;
+      tgLog('error', 'flow:failed', describeError(err));
       if (err instanceof TelegramLoginError && err.code === 'expired') {
         toast.error('The Telegram link expired. Please try again.');
       } else {
-        toast.error('Telegram sign-in failed. Please try again.');
+        toast.error('Telegram sign-in failed. Open Diagnostics below for details.');
       }
       setTgSession(null);
     }
   };
 
   const handleTelegramLogin = async () => {
+    tgLog('info', 'ui:continue-with-telegram-clicked');
     setTgStarting(true);
     try {
       const session = await startTelegramSignIn();
       // Opening from here may be blocked by the browser; the visible "Open Telegram" button is the fallback.
+      // 'noopener' makes window.open return null even on success, so the result says nothing about blocking.
       window.open(session.botUrl, '_blank', 'noopener');
+      tgLog('info', 'ui:window.open-called', { note: 'result is always null with noopener; if Telegram did not open, use the "Open Telegram" button' });
       void waitForTelegram(session);
-    } catch {
-      toast.error('Could not start Telegram sign-in. Check your connection.');
+    } catch (err) {
+      tgLog('error', 'flow:start-failed', describeError(err));
+      toast.error(describeStartError(err));
     } finally {
       setTgStarting(false);
     }
   };
 
   const cancelTelegramLogin = () => {
+    tgLog('info', 'ui:cancel-clicked');
     tgAbortRef.current?.abort();
     clearTelegramSession();
     setTgSession(null);
@@ -57,6 +66,7 @@ export default function LoginPage() {
 
   // The browser may reload the page while the user is in Telegram: pick the login back up.
   useEffect(() => {
+    tgWatchCsp();
     const pending = loadTelegramSession();
     if (pending) void waitForTelegram(pending);
     return () => tgAbortRef.current?.abort();
@@ -176,6 +186,7 @@ export default function LoginPage() {
               {tgStarting ? 'Starting…' : 'Continue with Telegram'}
             </button>
           )}
+          <TelegramDiagnostics />
         </div>
 
         <div className="bg-slate-50 py-4 px-8 border-t border-slate-100 text-center">

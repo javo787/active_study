@@ -7,6 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { Group, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
 import { startTelegramLogin, waitForTelegramLogin, TelegramLoginSession } from '@/lib/telegramAuth';
+import { describeError, tgLog } from '@/lib/tgLog';
 import { JoinGroupError, isValidJoinCode, normalizeJoinCode } from '@/lib/groups';
 
 interface AppUser {
@@ -51,9 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
         if (firebaseUser) {
+          const isTelegramUser = firebaseUser.uid.startsWith('tg_');
+          if (isTelegramUser) {
+            tgLog('info', 'auth:state-signed-in', { uidPrefix: firebaseUser.uid.slice(0, 6), providers: firebaseUser.providerData.map(p => p.providerId) });
+          }
           // Fetch user role from Firestore
           const userDocRef = doc(db, 'users', firebaseUser.uid);
           const userDoc = await getDoc(userDocRef);
+          if (isTelegramUser) tgLog('info', 'auth:profile-doc-read', { exists: userDoc.exists() });
 
           let appUser: AppUser;
           const expiresAt = Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
@@ -94,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               createdAt: serverTimestamp(),
               expiresAt,
             });
+            if (isTelegramUser) tgLog('info', 'auth:profile-doc-created', { role: appUser.role, hasDisplayName: appUser.displayName !== 'Anonymous' });
             setUser(appUser);
           }
         } else {
@@ -101,6 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('Auth state change error', error);
+        if (firebaseUser?.uid.startsWith('tg_')) {
+          tgLog('error', 'auth:profile-load-failed', {
+            ...describeError(error),
+            meaning: 'signed in to Firebase, but reading or creating users/{uid} failed: check Firestore rules (permission-denied) or the network',
+          });
+        }
         toast.error('Could not load your profile. Check your connection.');
         setUser(null);
       } finally {
@@ -135,7 +148,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const finishTelegramSignIn = async (session: TelegramLoginSession, signal?: AbortSignal) => {
     const customToken = await waitForTelegramLogin(session, signal);
-    await signInWithCustomToken(auth, customToken);
+    tgLog('info', 'firebase:signInWithCustomToken-begin');
+    try {
+      const cred = await signInWithCustomToken(auth, customToken);
+      tgLog('info', 'firebase:signInWithCustomToken-ok', { uidPrefix: cred.user.uid.slice(0, 6), isNewUser: cred.user.metadata.creationTime === cred.user.metadata.lastSignInTime });
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      tgLog('error', 'firebase:signInWithCustomToken-failed', {
+        ...describeError(error),
+        meaning:
+          code === 'auth/custom-token-mismatch'
+            ? 'the token was signed for a different Firebase project than the one this app uses'
+            : code === 'auth/invalid-custom-token'
+              ? 'the token is malformed or signed with the wrong key'
+              : code === 'auth/network-request-failed'
+                ? 'no connection to Google (identitytoolkit.googleapis.com), or CSP connect-src blocks it'
+                : undefined,
+      });
+      throw error;
+    }
   };
 
   const updateProfile = async (data: { fullName: string; group?: string }) => {
