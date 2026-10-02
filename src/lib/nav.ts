@@ -21,6 +21,7 @@ export const NAV_ITEMS = {
   teacher: [
     { href: '/dashboard/teacher', label: 'Dashboard' },
     { href: '/dashboard/teacher/exams', label: 'My Exams' },
+    { href: '/dashboard/teacher/groups', label: 'Groups' },
     { href: '/dashboard/teacher/attempts', label: 'Attempts' },
     { href: '/dashboard/teacher/importer', label: 'Import' },
     { href: '/dashboard/profile', label: 'Profile' },
@@ -46,6 +47,7 @@ const TITLE_MAP: Record<string, string> = {
   '/dashboard/teacher': 'Dashboard',
   '/dashboard/teacher/exams': 'My Exams',
   '/dashboard/teacher/exams/create': 'New Exam',
+  '/dashboard/teacher/groups': 'Groups',
   '/dashboard/teacher/exam': 'Manage Exam',
   '/dashboard/teacher/attempts': 'Attempts',
   '/dashboard/teacher/importer': 'Import Test',

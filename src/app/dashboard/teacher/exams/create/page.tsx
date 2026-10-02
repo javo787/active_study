@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { expiryFromNow, EXAM_TTL_DAYS } from '@/lib/examOps';
+import { fetchOwnedGroups } from '@/lib/groups';
+import { Group } from '@/types';
+import AudiencePicker, { Audience } from '@/components/AudiencePicker';
 
 export default function CreateExam() {
   const router = useRouter();
@@ -19,13 +22,29 @@ export default function CreateExam() {
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleOptions, setShuffleOptions] = useState(false);
   const [showAnswers, setShowAnswers] = useState(false);
-  const [visibility, setVisibility] = useState<'listed' | 'link'>('listed');
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [audience, setAudience] = useState<Audience>('groups');
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchOwnedGroups(user.uid)
+      .then(setGroups)
+      .catch(error => console.error('Failed to load groups', error))
+      .finally(() => setGroupsLoading(false));
+  }, [user]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+
+    if (audience === 'groups' && selectedGroups.length === 0) {
+      toast.error('Pick at least one group, or choose "Anyone with the link".');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -43,7 +62,8 @@ export default function CreateExam() {
         shuffleQuestions,
         shuffleOptions,
         showAnswers,
-        visibility,
+        visibility: audience === 'groups' ? 'listed' : 'link',
+        groupIds: audience === 'groups' ? selectedGroups : [],
         isPublished: false,
         totalVariants: 1,
         createdAt: serverTimestamp(),
@@ -153,15 +173,16 @@ export default function CreateExam() {
             <span className="text-sm font-medium text-slate-700">Show correct answers after submit</span>
           </label>
 
-          <label className="flex items-center space-x-3 cursor-pointer min-h-[44px]">
-            <input
-              type="checkbox"
-              checked={visibility === 'listed'}
-              onChange={e => setVisibility(e.target.checked ? 'listed' : 'link')}
-              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-sm font-medium text-slate-700">Show on students&apos; dashboard (uncheck for link-only)</span>
-          </label>
+        </div>
+
+        <div className="pt-4 border-t border-slate-100">
+          <AudiencePicker
+            groups={groups}
+            loading={groupsLoading}
+            audience={audience}
+            selected={selectedGroups}
+            onChange={(a, sel) => { setAudience(a); setSelectedGroups(sel); }}
+          />
         </div>
 
         <button

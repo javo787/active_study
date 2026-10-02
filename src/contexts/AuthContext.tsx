@@ -2,11 +2,12 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, signInWithPopup, signInWithCustomToken, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { UserRole } from '@/types';
+import { Group, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
 import { startTelegramLogin, waitForTelegramLogin, TelegramLoginSession } from '@/lib/telegramAuth';
+import { JoinGroupError, isValidJoinCode, normalizeJoinCode } from '@/lib/groups';
 
 interface AppUser {
   uid: string;
@@ -15,6 +16,7 @@ interface AppUser {
   email: string;
   fullName?: string;
   group?: string;
+  groupIds?: string[];
 }
 
 interface AuthContextType {
@@ -25,6 +27,8 @@ interface AuthContextType {
   finishTelegramSignIn: (session: TelegramLoginSession, signal?: AbortSignal) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (data: { fullName: string; group?: string }) => Promise<void>;
+  joinGroup: (code: string) => Promise<Group>;
+  leaveGroup: (code: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -35,6 +39,8 @@ const AuthContext = createContext<AuthContextType>({
   finishTelegramSignIn: async () => {},
   signOut: async () => {},
   updateProfile: async () => {},
+  joinGroup: async () => { throw new Error('AuthProvider missing'); },
+  leaveGroup: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -144,6 +150,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const joinGroup = async (rawCode: string): Promise<Group> => {
+    if (!user) throw new JoinGroupError('failed', 'Not signed in');
+    const code = normalizeJoinCode(rawCode);
+    if (!isValidJoinCode(code)) throw new JoinGroupError('invalid', 'That code does not look right');
+
+    const snap = await getDoc(doc(db, 'groups', code));
+    if (!snap.exists()) throw new JoinGroupError('not_found', 'No group with this code');
+
+    if (!(user.groupIds ?? []).includes(code)) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { groupIds: arrayUnion(code) });
+      } catch (error) {
+        console.error('Error joining group', error);
+        throw new JoinGroupError('failed', 'Could not join the group');
+      }
+      setUser((prev) => prev ? { ...prev, groupIds: [...(prev.groupIds ?? []), code] } : null);
+    }
+    return { id: snap.id, ...snap.data() } as Group;
+  };
+
+  const leaveGroup = async (code: string) => {
+    if (!user) return;
+    await updateDoc(doc(db, 'users', user.uid), { groupIds: arrayRemove(code) });
+    setUser((prev) => prev ? { ...prev, groupIds: (prev.groupIds ?? []).filter(g => g !== code) } : null);
+  };
+
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
@@ -153,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile, joinGroup, leaveGroup }}>
       {children}
     </AuthContext.Provider>
   );

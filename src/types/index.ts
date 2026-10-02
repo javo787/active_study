@@ -9,7 +9,21 @@ export interface User {
   email: string;
   fullName?: string;
   group?: string;
+  /** Join codes of the groups this user belongs to (see Group). */
+  groupIds?: string[];
   expiresAt?: Date | Timestamp;
+}
+
+/**
+ * A class group owned by a teacher. The document id IS the join code
+ * (8 chars, unambiguous alphabet), so knowing the code is what lets a student in.
+ */
+export interface Group {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName?: string;
+  createdAt: Date | Timestamp;
 }
 
 export interface Question {
@@ -31,6 +45,8 @@ export interface Exam {
   createdBy?: string;
   createdByName?: string;
   visibility?: 'listed' | 'link';
+  /** Groups that can see/take this exam. Empty or missing = anyone with the link. */
+  groupIds?: string[];
   shuffleQuestions?: boolean;
   shuffleOptions?: boolean;
   showAnswers?: boolean;
