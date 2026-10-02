@@ -6,7 +6,34 @@
 
 import { describeError, tgLog, tgNewAttempt, tokenRef } from '@/lib/tgLog';
 
-const AUTH_BASE = (process.env.NEXT_PUBLIC_EDU_AUTH_BASE_URL || 'https://duxtur.org').replace(/\/$/, '');
+const DUXTUR_HOSTS = ['duxtur.org', 'www.duxtur.org'];
+// Used only when this app runs outside duxtur.org (e.g. its own *.vercel.app host). www is the host that
+// actually serves duxtur.org; the bare domain redirects, and a cross-origin POST cannot follow a redirect.
+const DEFAULT_REMOTE_AUTH_BASE = 'https://www.duxtur.org';
+
+export interface AuthBase {
+  base: string;
+  source: string;
+}
+
+/**
+ * Where the Telegram login API lives.
+ *
+ * Mounted under duxtur.org/edu the API is on the page's OWN origin, whichever of duxtur.org / www.duxtur.org
+ * the visitor is on: same-origin needs no CORS and is allowed by the /edu Content-Security-Policy
+ * (connect-src 'self'). Pointing at a fixed host breaks as soon as the visitor is on the other one:
+ * a page on https://www.duxtur.org calling https://duxtur.org is cross-origin, so CSP blocks it before
+ * any request is sent (nothing shows up in the server logs) and fetch() fails with a bare "Failed to fetch".
+ */
+export function resolveAuthBase(hostname: string, origin: string, envBase?: string): AuthBase {
+  if (DUXTUR_HOSTS.includes(hostname)) return { base: origin, source: 'same-origin (page is on duxtur.org)' };
+  if (envBase) return { base: envBase.replace(/\/$/, ''), source: 'NEXT_PUBLIC_EDU_AUTH_BASE_URL' };
+  return { base: DEFAULT_REMOTE_AUTH_BASE, source: `default (${DEFAULT_REMOTE_AUTH_BASE})` };
+}
+
+function getAuthBase(): AuthBase {
+  return resolveAuthBase(window.location.hostname, window.location.origin, process.env.NEXT_PUBLIC_EDU_AUTH_BASE_URL);
+}
 const STORAGE_KEY = 'tg_login_session_v1';
 const POLL_INTERVAL_MS = 2000;
 const REQUEST_ID_HEADER = 'x-edu-request-id';
@@ -110,12 +137,14 @@ export function loadTelegramSession(): TelegramLoginSession | null {
 
 function snapshotEnvironment() {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const auth = getAuthBase();
   return {
     pageUrl: typeof window !== 'undefined' ? window.location.href : '',
     pageOrigin: origin,
-    authBase: AUTH_BASE,
-    authBaseSource: process.env.NEXT_PUBLIC_EDU_AUTH_BASE_URL ? 'NEXT_PUBLIC_EDU_AUTH_BASE_URL' : 'default (https://duxtur.org)',
-    sameOrigin: AUTH_BASE === origin,
+    authBase: auth.base,
+    authBaseSource: auth.source,
+    envAuthBase: process.env.NEXT_PUBLIC_EDU_AUTH_BASE_URL || '(unset)',
+    sameOrigin: auth.base === origin,
     basePath: process.env.NEXT_PUBLIC_BASE_PATH || '(none)',
     firebaseProjectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '(unset)',
     online: typeof navigator !== 'undefined' ? navigator.onLine : null,
@@ -126,8 +155,9 @@ function snapshotEnvironment() {
 
 function networkHint(): string {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'browser reports it is offline';
-  if (typeof window !== 'undefined' && AUTH_BASE !== window.location.origin) {
-    return `AUTH_BASE (${AUTH_BASE}) is not the page origin (${window.location.origin}): CSP connect-src or CORS probably blocks it`;
+  const { base } = getAuthBase();
+  if (base !== window.location.origin) {
+    return `auth base (${base}) is not the page origin (${window.location.origin}): CSP connect-src or CORS probably blocks it`;
   }
   return 'same-origin request failed before any HTTP answer: connectivity/DNS, an ad-blocker or extension, or the server dropped the connection';
 }
@@ -192,7 +222,7 @@ export async function startTelegramLogin(): Promise<TelegramLoginSession> {
   const attempt = tgNewAttempt();
   tgLog('info', 'start:begin', { attempt, ...snapshotEnvironment() });
 
-  const url = `${AUTH_BASE}/api/edu-auth/telegram/start`;
+  const url = `${getAuthBase().base}/api/edu-auth/telegram/start`;
   let res: Response;
   try {
     res = await loggedFetch('start', url, { method: 'POST' });
@@ -272,7 +302,7 @@ export async function waitForTelegramLogin(
   session: TelegramLoginSession,
   signal?: AbortSignal
 ): Promise<string> {
-  const url = `${AUTH_BASE}/api/edu-auth/telegram/check`;
+  const url = `${getAuthBase().base}/api/edu-auth/telegram/check`;
   const ref0 = tokenRef(session.token);
   tgLog('info', 'poll:begin', { tokenRef: ref0, intervalMs: POLL_INTERVAL_MS, expiresInSec: Math.round((session.expiresAt - Date.now()) / 1000) });
 
