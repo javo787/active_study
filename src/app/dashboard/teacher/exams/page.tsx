@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Clock, Copy, Edit, Link as LinkIcon, MoreVertical, Trash2, Eye, EyeOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { appUrl } from '@/lib/appUrl';
 
 export default function MyExamsPage() {
   const { user } = useAuth();
@@ -132,7 +133,7 @@ export default function MyExamsPage() {
   };
 
   const handleShare = async (examId: string) => {
-    const url = `${window.location.origin}/exam?id=${examId}`;
+    const url = appUrl(`/exam?id=${examId}`);
     if (navigator.share) {
       try {
         await navigator.share({

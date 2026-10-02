@@ -1,5 +1,27 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Deploying under duxtur.org/edu
+
+The app is a static export (`output: 'export'`) mounted at `https://duxtur.org/edu` by the
+duxtur-portal project, which proxies `/edu/**` to the origin that serves this build at its root.
+
+1. Build for the mount point (the prefix is baked in at build time):
+   ```bash
+   NEXT_PUBLIC_BASE_PATH=/edu npm run build   # -> ./out
+   ```
+   A build without `NEXT_PUBLIC_BASE_PATH` is a normal standalone build (previous behaviour).
+2. Publish `./out` to a **separate** Firebase Hosting site, so the current deployment is not touched:
+   ```bash
+   firebase hosting:sites:create <site-id>
+   firebase target:apply hosting edu <site-id>      # maps the "edu" target in firebase.json
+   firebase deploy --only hosting:edu
+   ```
+3. In the portal's Vercel project set `EDU_APP_ORIGIN=https://<site-id>.web.app` and redeploy.
+4. Firebase Console -> Authentication -> Settings -> Authorized domains: add `duxtur.org`.
+5. Firestore rules live in `firestore.rules`: `firebase deploy --only firestore:rules`.
+
+Links shared with students are built with `appUrl()` (`src/lib/appUrl.ts`), which adds the prefix.
+
 ## Getting Started
 
 First, run the development server:

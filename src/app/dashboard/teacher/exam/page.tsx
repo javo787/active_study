@@ -13,6 +13,7 @@ import AudiencePicker, { Audience } from '@/components/AudiencePicker';
 import Link from 'next/link';
 import { Copy, Save, Share2, Plus, Trash2, Play, AlertCircle, Edit } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { appUrl } from '@/lib/appUrl';
 
 function ExamManager() {
   const searchParams = useSearchParams();
@@ -431,8 +432,8 @@ function ExamManager() {
           <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-200">
             <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2"><Share2 className="w-4 h-4"/> Share Link</h3>
             <div className="flex items-center gap-2 mb-3">
-              <input readOnly value={`${typeof window !== 'undefined' ? window.location.origin : ''}/exam?id=${id}`} className="flex-1 bg-slate-50 border border-slate-200 rounded p-2 text-sm text-slate-600" />
-              <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/exam?id=${id}`); toast.success('Copied'); }} className="p-2 border border-slate-200 rounded bg-white hover:bg-slate-50 min-h-[44px] min-w-[44px] flex items-center justify-center">
+              <input readOnly value={appUrl(`/exam?id=${id}`)} className="flex-1 bg-slate-50 border border-slate-200 rounded p-2 text-sm text-slate-600" />
+              <button onClick={() => { navigator.clipboard.writeText(appUrl(`/exam?id=${id}`)); toast.success('Copied'); }} className="p-2 border border-slate-200 rounded bg-white hover:bg-slate-50 min-h-[44px] min-w-[44px] flex items-center justify-center">
                 <Copy className="w-4 h-4" />
               </button>
             </div>
