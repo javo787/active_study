@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Group } from '@/types';
+import { appUrl } from './appUrl';
 
 // No 0/O, 1/I/L: codes get read aloud and typed from a projector.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars -> uniform with a byte % 32
@@ -28,7 +29,7 @@ export function formatJoinCode(code: string): string {
 }
 
 export function inviteLink(code: string): string {
-  return `${window.location.origin}/join?code=${code}`;
+  return appUrl(`/join?code=${code}`);
 }
 
 export class JoinGroupError extends Error {
