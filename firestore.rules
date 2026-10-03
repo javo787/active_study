@@ -30,15 +30,25 @@ service cloud.firestore {
               && exists(/databases/$(database)/documents/groups/$(after[before.size()])));
     }
 
+    // A user may only raise their own teacher request (none -> pending).
+    // Approving or rejecting it is the admin's job.
+    function teacherRequestAllowed() {
+      let before = resource.data.get('teacherStatus', null);
+      let after = request.resource.data.get('teacherStatus', null);
+      return before == after || (before == null && after == 'pending');
+    }
+
     match /users/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow list: if isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
                     && request.resource.data.role == 'student'
+                    && !('teacherStatus' in request.resource.data)
                     && request.resource.data.get('groupIds', []).size() == 0;
       allow update: if signedIn() && (
         (request.auth.uid == userId
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+          && teacherRequestAllowed()
           && groupsChangeAllowed())
         || isAdmin());
       allow delete: if isAdmin();

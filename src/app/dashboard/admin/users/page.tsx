@@ -6,6 +6,13 @@ import { db } from '@/lib/firebase';
 import { User, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
 
+// Telegram sign-ins have no e-mail and often no display name, so lean on what the person typed in onboarding.
+const personName = (u: User) => u.fullName || u.displayName || 'Unnamed';
+const personDetails = (u: User) =>
+  [u.university, u.role === 'student' && u.course ? `Year ${u.course}` : u.department].filter(Boolean).join(' · ') ||
+  u.email ||
+  'Telegram sign-in';
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,20 +35,34 @@ export default function AdminUsersPage() {
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
-      const updates: Record<string, unknown> = { role: newRole };
+      // Any manual role change settles a teacher request, one way or the other.
+      const updates: Record<string, unknown> = { role: newRole, teacherStatus: deleteField() };
       if (newRole === 'student') {
         updates.expiresAt = Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
       } else {
         updates.expiresAt = deleteField();
       }
       await updateDoc(doc(db, 'users', userId), updates);
-      setUsers(users.map(u => u.uid === userId ? { ...u, role: newRole } : u));
+      setUsers(users.map(u => u.uid === userId ? { ...u, role: newRole, teacherStatus: undefined } : u));
       toast.success('User role updated successfully.');
     } catch (error) {
       console.error('Error updating role:', error);
       toast.error('Failed to update user role.');
     }
   };
+
+  const rejectRequest = async (userId: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { teacherStatus: 'rejected' });
+      setUsers(users.map(u => u.uid === userId ? { ...u, teacherStatus: 'rejected' } : u));
+      toast.success('Request declined. You can still approve it later.');
+    } catch (error) {
+      console.error('Error rejecting request:', error);
+      toast.error('Could not decline the request.');
+    }
+  };
+
+  const requests = users.filter(u => u.teacherStatus === 'pending');
 
   if (loading) {
     return <div>Loading users...</div>;
@@ -51,14 +72,47 @@ export default function AdminUsersPage() {
     <div>
       <h2 className="text-2xl font-bold text-slate-800 mb-6">User Management</h2>
 
+      {requests.length > 0 && (
+        <section aria-labelledby="requests-title" className="mb-8 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <h3 id="requests-title" className="font-semibold text-amber-900 mb-3">
+            Teacher requests ({requests.length})
+          </h3>
+          <ul className="space-y-3">
+            {requests.map(u => (
+              <li key={u.uid} className="bg-white rounded-md border border-amber-100 p-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900">{personName(u)}</div>
+                  <div className="text-sm text-slate-500">{[u.department, u.university].filter(Boolean).join(' · ') || 'No details given'}</div>
+                  <div className="text-xs text-slate-400">{u.email || 'Telegram sign-in'}</div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button" onClick={() => handleRoleChange(u.uid, 'teacher')}
+                    className="px-4 min-h-[44px] rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button" onClick={() => rejectRequest(u.uid)}
+                    className="px-4 min-h-[44px] rounded-md border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* Mobile view: Stacked Cards */}
       <div className="md:hidden space-y-4">
         {users.map(u => (
           <div key={u.uid} className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
             <div className="flex justify-between items-start mb-3">
               <div>
-                <div className="text-sm font-medium text-slate-900">{u.displayName}</div>
-                <div className="text-sm text-slate-500">{u.email}</div>
+                <div className="text-sm font-medium text-slate-900">{personName(u)}</div>
+                <div className="text-sm text-slate-500">{personDetails(u)}</div>
               </div>
               <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
                 u.role === 'admin' ? 'bg-purple-100 text-purple-800' :
@@ -96,8 +150,8 @@ export default function AdminUsersPage() {
             {users.map(u => (
               <tr key={u.uid}>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-slate-900">{u.displayName}</div>
-                  <div className="text-sm text-slate-500">{u.email}</div>
+                  <div className="text-sm font-medium text-slate-900">{personName(u)}</div>
+                  <div className="text-sm text-slate-500">{personDetails(u)}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
