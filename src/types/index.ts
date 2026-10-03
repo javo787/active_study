@@ -2,6 +2,9 @@ import { Timestamp } from 'firebase/firestore';
 
 export type UserRole = 'admin' | 'teacher' | 'student';
 
+/** Set by a user who asked to become a teacher; the admin approves (role -> teacher) or rejects. */
+export type TeacherStatus = 'pending' | 'rejected';
+
 export interface User {
   uid: string;
   role: UserRole;
@@ -9,6 +12,12 @@ export interface User {
   email: string;
   fullName?: string;
   group?: string;
+  university?: string;
+  /** Students: year of study (1-6). */
+  course?: number;
+  /** Teachers: department. */
+  department?: string;
+  teacherStatus?: TeacherStatus;
   /** Join codes of the groups this user belongs to (see Group). */
   groupIds?: string[];
   expiresAt?: Date | Timestamp;

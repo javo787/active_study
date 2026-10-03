@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { onAuthStateChanged, signInWithPopup, signInWithCustomToken, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { Group, UserRole } from '@/types';
+import { Group, TeacherStatus, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
 import { startTelegramLogin, waitForTelegramLogin, TelegramLoginSession } from '@/lib/telegramAuth';
 import { describeError, tgLog } from '@/lib/tgLog';
@@ -17,7 +17,21 @@ interface AppUser {
   email: string;
   fullName?: string;
   group?: string;
+  university?: string;
+  course?: number;
+  department?: string;
+  teacherStatus?: TeacherStatus;
   groupIds?: string[];
+}
+
+export interface ProfileData {
+  fullName: string;
+  group?: string;
+  university?: string;
+  course?: number;
+  department?: string;
+  /** Ask the admin for teacher access (sets teacherStatus: 'pending'). */
+  requestTeacher?: boolean;
 }
 
 interface AuthContextType {
@@ -27,9 +41,11 @@ interface AuthContextType {
   startTelegramSignIn: () => Promise<TelegramLoginSession>;
   finishTelegramSignIn: (session: TelegramLoginSession, signal?: AbortSignal) => Promise<void>;
   signOut: () => Promise<void>;
-  updateProfile: (data: { fullName: string; group?: string }) => Promise<void>;
+  updateProfile: (data: ProfileData) => Promise<void>;
   joinGroup: (code: string) => Promise<Group>;
   leaveGroup: (code: string) => Promise<void>;
+  /** Re-read users/{uid}, e.g. to notice that an admin approved a teacher request. */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -42,6 +58,7 @@ const AuthContext = createContext<AuthContextType>({
   updateProfile: async () => {},
   joinGroup: async () => { throw new Error('AuthProvider missing'); },
   leaveGroup: async () => {},
+  refreshUser: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -169,12 +186,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateProfile = async (data: { fullName: string; group?: string }) => {
+  const updateProfile = async (data: ProfileData) => {
     if (!user) return;
     try {
+      const { requestTeacher, ...fields } = data;
+      // Firestore rejects `undefined` values, so only send what was actually filled in.
+      const update: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(fields)) {
+        if (value !== undefined) update[key] = value;
+      }
+      if (requestTeacher && !user.teacherStatus) update.teacherStatus = 'pending';
+
       const userDocRef = doc(db, 'users', user.uid);
-      await updateDoc(userDocRef, { ...data });
-      setUser((prev) => prev ? { ...prev, ...data } : null);
+      await updateDoc(userDocRef, update);
+      setUser((prev) => prev ? { ...prev, ...update } as AppUser : null);
     } catch (error) {
       console.error('Error updating profile', error);
       throw error;
@@ -207,6 +232,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((prev) => prev ? { ...prev, groupIds: (prev.groupIds ?? []).filter(g => g !== code) } : null);
   };
 
+  const refreshUser = async () => {
+    if (!user) return;
+    const snap = await getDoc(doc(db, 'users', user.uid));
+    if (snap.exists()) setUser(snap.data() as AppUser);
+  };
+
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
@@ -216,7 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile, joinGroup, leaveGroup }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile, joinGroup, leaveGroup, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

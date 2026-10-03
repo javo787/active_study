@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { User, Exam, Attempt } from '@/types';
@@ -11,6 +12,7 @@ export default function AdminDashboard() {
     totalTeachers: 0,
     totalExams: 0,
     totalAttempts: 0,
+    pendingRequests: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -34,6 +36,7 @@ export default function AdminDashboard() {
           totalTeachers: usersData.filter(u => u.role === 'teacher').length,
           totalExams: examsData.length,
           totalAttempts: nonPreviewAttempts.length,
+          pendingRequests: usersData.filter(u => u.teacherStatus === 'pending').length,
         });
       } catch (error) {
         console.error('Failed to fetch admin stats:', error);
@@ -48,6 +51,16 @@ export default function AdminDashboard() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-slate-800 mb-6">Admin Overview</h2>
+
+      {!loading && stats.pendingRequests > 0 && (
+        <Link
+          href="/dashboard/admin/users"
+          className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 min-h-[44px] text-sm text-amber-900 hover:bg-amber-100"
+        >
+          <span><strong>{stats.pendingRequests}</strong> teacher {stats.pendingRequests === 1 ? 'request is' : 'requests are'} waiting for review</span>
+          <span className="font-medium underline">Review</span>
+        </Link>
+      )}
 
       {loading ? (
         <p>Loading stats...</p>

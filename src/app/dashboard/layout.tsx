@@ -9,7 +9,8 @@ import { NAV_ITEMS, ADMIN_LINKS, getPageTitle, isNavActive } from '@/lib/nav';
 import ProfileSetup from '@/components/ProfileSetup';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, signOut, refreshUser } = useAuth();
+  const [checking, setChecking] = useState(false);
   const rawPathname = usePathname();
   const pathname = rawPathname.endsWith('/') && rawPathname.length > 1 ? rawPathname.slice(0, -1) : rawPathname;
   const router = useRouter();
@@ -259,6 +260,35 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
              </h2>
         </header>
         <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+          {!needsProfileSetup && user.role === 'student' && user.teacherStatus && (
+            <div
+              role="status"
+              className={`mb-4 rounded-lg border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 ${
+                user.teacherStatus === 'pending'
+                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                  : 'bg-slate-100 border-slate-200 text-slate-700'
+              }`}
+            >
+              <span>
+                {user.teacherStatus === 'pending'
+                  ? 'Teacher access requested. An admin will review it; until then you have the student view.'
+                  : 'Your teacher request was declined. If this is a mistake, contact the admin.'}
+              </span>
+              {user.teacherStatus === 'pending' && (
+                <button
+                  type="button"
+                  disabled={checking}
+                  onClick={async () => {
+                    setChecking(true);
+                    try { await refreshUser(); } finally { setChecking(false); }
+                  }}
+                  className="px-3 min-h-[44px] rounded-md border border-amber-300 bg-white hover:bg-amber-100 font-medium disabled:opacity-50"
+                >
+                  {checking ? 'Checking…' : 'Check status'}
+                </button>
+              )}
+            </div>
+          )}
           {needsProfileSetup ? <ProfileSetup /> : children}
         </div>
       </main>
