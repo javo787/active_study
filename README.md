@@ -22,6 +22,19 @@ duxtur-portal project, which proxies `/edu/**` to the origin that serves this bu
 
 Links shared with students are built with `appUrl()` (`src/lib/appUrl.ts`), which adds the prefix.
 
+## Tests and CI
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm test            # unit tests of pure logic (vitest)
+npm run test:rules  # Firestore security rules, against the local emulator
+```
+
+`npm run test:rules` starts the Firestore emulator through `firebase emulators:exec` (it needs Java 21 and downloads
+the emulator on first use) and runs `tests/rules/*.test.ts` against `firestore.rules`. Every rules change comes with a
+test there. GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus lint and the static export build on
+every pull request.
+
 ## Getting Started
 
 First, run the development server:
