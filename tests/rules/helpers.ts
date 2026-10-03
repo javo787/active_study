@@ -2,9 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach } from 'vitest';
 import { initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, setLogLevel } from 'firebase/firestore';
 
 export const PROJECT_ID = 'demo-active-study';
+
+// The tests refuse writes on purpose; the SDK would print every refusal as an error.
+setLogLevel('silent');
 
 // Valid join codes: 8 characters from ABCDEFGHJKLMNPQRSTUVWXYZ23456789 (no I, L, O, 0, 1).
 export const CODE_A = 'ABCD2345';
