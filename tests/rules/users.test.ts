@@ -120,6 +120,24 @@ describe('users: group membership (users/{uid}.groupIds)', () => {
     await assertSucceeds(updateDoc(doc(db, 'users/student2'), { groupIds: arrayUnion(CODE_A) }));
   });
 
+  it('joins the very first group when the profile has no groupIds field at all (a brand-new student)', async () => {
+    await seed(getEnv(), { ...baseCast, 'users/student2': userDoc('student') });
+    const db = getEnv().authenticatedContext('student2').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'users/student2'), { groupIds: arrayUnion(CODE_A) }));
+  });
+
+  it('joins a second group after the first one', async () => {
+    await seed(getEnv(), { ...baseCast, [`groups/${CODE_B}`]: { name: 'Physiology', ownerId: 'teacher1' } });
+    const db = getEnv().authenticatedContext('student1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'users/student1'), { groupIds: arrayUnion(CODE_B) }));
+  });
+
+  it('cannot swap one group for another in a single write', async () => {
+    await seed(getEnv(), { ...baseCast, [`groups/${CODE_B}`]: { name: 'Physiology', ownerId: 'teacher1' } });
+    const db = getEnv().authenticatedContext('student1').firestore();
+    await assertFails(updateDoc(doc(db, 'users/student1'), { groupIds: [CODE_B] }));
+  });
+
   it('cannot join a group that does not exist', async () => {
     await seed(getEnv(), baseCast);
     const db = getEnv().authenticatedContext('student2').firestore();
