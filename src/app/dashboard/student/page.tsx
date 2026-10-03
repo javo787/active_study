@@ -53,10 +53,11 @@ export default function StudentDashboard() {
       if (missingIds.length > 0 && !pruningRef.current) {
         pruningRef.current = true;
         pruneGroups(missingIds).catch(console.error);
-        toast(`\n${missingIds.length} group(s) you were in no longer exist. They were deleted by the teacher.`, { icon: 'ℹ️' });
+        toast(`${missingIds.length} group(s) you were in no longer exist. They were deleted by the teacher.`, { icon: 'ℹ️' });
       }
 
-      const validGroupIds = myGroups.map(g => g.id);
+      // Only ids that are certainly deleted are dropped. A group whose lookup failed (network) stays in the query.
+      const validGroupIds = groupIds.filter(id => !missingIds.includes(id));
 
       const attemptsQ = query(collection(db, 'attempts'), where('studentId', '==', user.uid));
       const now = Date.now();
