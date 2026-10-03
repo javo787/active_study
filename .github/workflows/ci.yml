@@ -55,4 +55,19 @@ jobs:
           path: ~/.cache/firebase/emulators
           key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      - run: npm run test:rules
+      - name: Run rules tests
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:rules 2>&1 | tee rules-test.log
+      - name: Show the end of the log in the annotations
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          text = pathlib.Path('rules-test.log').read_text(errors='replace')
+          tail = '\n'.join(text.splitlines()[-70:])
+          tail = tail.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+          print('::error title=Rules test output (last lines)::' + tail)
+          PY
