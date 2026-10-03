@@ -26,6 +26,12 @@ export function ConfirmDialog({
   confirmDisabled = false,
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // Parents pass inline callbacks. Keeping the latest one in a ref stops the effect from re-running
+  // (and re-focusing Cancel) on every parent render, e.g. when the exam list finishes loading.
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -33,7 +39,7 @@ export function ConfirmDialog({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onCancel();
+        onCancelRef.current();
       }
     };
 
@@ -46,7 +52,7 @@ export function ConfirmDialog({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onCancel, isDestructive]);
+  }, [isOpen, isDestructive]);
 
   if (!isOpen) return null;
 

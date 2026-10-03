@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { Archive, Copy, Link2, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -20,6 +20,7 @@ export default function TeacherGroups() {
   const [groupToDelete, setGroupToDelete] = useState<Group | null>(null);
   const [deletingExams, setDeletingExams] = useState<{ loading: boolean; error: boolean; unpublish: string[]; detach: string[] }>({ loading: false, error: false, unpublish: [], detach: [] });
   const [showArchived, setShowArchived] = useState(false);
+  const deleteRequestRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -29,6 +30,7 @@ export default function TeacherGroups() {
       setGroups(await fetchOwnedGroups(user.uid));
     } catch (error) {
       console.error(error);
+      setError(true);
       toast.error('Failed to load groups');
     } finally {
       setLoading(false);
@@ -67,10 +69,13 @@ export default function TeacherGroups() {
 
   const requestDelete = async (group: Group) => {
     if (!user) return;
+    const requestId = ++deleteRequestRef.current;
     setGroupToDelete(group);
     setDeletingExams({ loading: true, error: false, unpublish: [], detach: [] });
     try {
       const exams = await fetchGroupExams(user.uid, group.id);
+      // The teacher closed the dialog or opened another group meanwhile: this answer is stale.
+      if (requestId !== deleteRequestRef.current) return;
       const { unpublishIds, detachIds } = planGroupDeletion(group.id, exams);
 
       const unpublishTitles = unpublishIds.map(id => exams.find(e => e.id === id)?.title ?? id);
@@ -78,8 +83,14 @@ export default function TeacherGroups() {
 
       setDeletingExams({ loading: false, error: false, unpublish: unpublishTitles, detach: detachTitles });
     } catch {
+      if (requestId !== deleteRequestRef.current) return;
       setDeletingExams(prev => ({ ...prev, loading: false, error: true }));
     }
+  };
+
+  const cancelDelete = () => {
+    deleteRequestRef.current++;
+    setGroupToDelete(null);
   };
 
   const handleDelete = async () => {
@@ -95,7 +106,7 @@ export default function TeacherGroups() {
       console.error(error);
       toast.error('Failed to delete group');
     } finally {
-      setGroupToDelete(null);
+      cancelDelete();
     }
   };
 
@@ -261,7 +272,7 @@ export default function TeacherGroups() {
           </div>
         }
         onConfirm={handleDelete}
-        onCancel={() => setGroupToDelete(null)}
+        onCancel={cancelDelete}
       />
     </div>
   );
