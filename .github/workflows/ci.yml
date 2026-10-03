@@ -71,7 +71,9 @@ jobs:
           lines = text.splitlines()
           keep = []
           for i, line in enumerate(lines):
-              if re.search(r'FAIL|AssertionError|Test Files|Tests |Error:|Could not|error:|emulator', line) and 'PERMISSION_DENIED' not in line:
+              if re.search(r'^\s*FAIL ', line):
+                  keep.extend(lines[i:i + 14])
+              elif re.search(r'Test Files|Tests |emulators: Starting|downloading|Error: Script', line):
                   keep.append(line)
           excerpt = '\n'.join(keep[-60:]) or '\n'.join(lines[-40:])
           excerpt = excerpt.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
