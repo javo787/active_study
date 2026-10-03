@@ -8,7 +8,7 @@ import { Exam, Group, Question } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { deleteExamCascade, duplicateExam, validateExamForPublish } from '@/lib/examOps';
-import { fetchOwnedGroups } from '@/lib/groups';
+import { fetchGroupsByIds, fetchOwnedGroups } from '@/lib/groups';
 import AudiencePicker, { Audience } from '@/components/AudiencePicker';
 import Link from 'next/link';
 import { Copy, Save, Share2, Plus, Trash2, Play, AlertCircle, Edit } from 'lucide-react';
@@ -40,6 +40,8 @@ function ExamManager() {
   const [audience, setAudience] = useState<Audience>('groups');
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [ownedGroups, setOwnedGroups] = useState<Group[]>([]);
+  const [foreignGroups, setForeignGroups] = useState<Group[]>([]);
+  const [deletedGroupNotice, setDeletedGroupNotice] = useState(0);
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [maxViolations, setMaxViolations] = useState<number | ''>(3);
   const [proctoringEnabled, setProctoringEnabled] = useState(true);
@@ -79,8 +81,22 @@ function ExamManager() {
         setShuffleQuestions(!!data.shuffleQuestions);
         setShuffleOptions(!!data.shuffleOptions);
         setShowAnswers(!!data.showAnswers);
+
+        let initialGroups = data.groupIds ?? [];
+        if (initialGroups.length > 0) {
+          const { groups: fetchedGroups, missingIds } = await fetchGroupsByIds(initialGroups);
+          if (missingIds.length > 0) {
+            setDeletedGroupNotice(missingIds.length);
+            initialGroups = initialGroups.filter(id => !missingIds.includes(id));
+            setIsDirty(true);
+          }
+          if (user) {
+            setForeignGroups(fetchedGroups.filter(g => g.ownerId !== user.uid));
+          }
+        }
+
         setAudience(data.visibility === 'link' ? 'link' : 'groups');
-        setSelectedGroups(data.groupIds ?? []);
+        setSelectedGroups(initialGroups);
         setMaxViolations(data.maxViolations ?? 3);
         setProctoringEnabled(data.proctoringEnabled !== false);
 
@@ -519,13 +535,41 @@ function ExamManager() {
                   <span className="text-sm text-slate-700">Show answers after submit</span>
                 </label>
                 <div className="pt-2">
+                  {deletedGroupNotice > 0 && (
+                    <div className="mb-3 p-3 bg-amber-50 text-amber-800 text-sm rounded-md flex gap-2 items-start border border-amber-200">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-500" />
+                      <p>{deletedGroupNotice} deleted group(s) were removed from this exam. Save to apply.</p>
+                    </div>
+                  )}
                   <AudiencePicker
                     groups={ownedGroups}
                     loading={groupsLoading}
                     audience={audience}
                     selected={selectedGroups}
-                    onChange={(a, sel) => { setAudience(a); setSelectedGroups(sel); setIsDirty(true); }}
+                    onChange={(a, sel) => {
+                      const newSelected = a === 'groups' ? sel : [];
+                      const foreignIds = foreignGroups.map(g => g.id);
+                      const combined = Array.from(new Set([...newSelected, ...foreignIds.filter(id => selectedGroups.includes(id))]));
+                      setAudience(a); setSelectedGroups(combined); setIsDirty(true);
+                    }}
                   />
+                  {audience === 'groups' && foreignGroups.length > 0 && (
+                    <div className="mt-2 ml-8 space-y-1">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Other Teachers&apos; Groups</p>
+                      {foreignGroups.map(group => (
+                        <label key={group.id} className="flex items-center space-x-3 min-h-[44px] opacity-75">
+                          <input
+                            type="checkbox"
+                            checked={selectedGroups.includes(group.id)}
+                            readOnly
+                            disabled
+                            className="w-5 h-5 rounded border-slate-300 text-slate-400 bg-slate-100"
+                          />
+                          <span className="text-sm text-slate-600">{group.name} <span className="text-xs text-slate-400">(read-only)</span></span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

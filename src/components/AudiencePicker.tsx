@@ -44,7 +44,9 @@ export default function AudiencePicker({ groups, loading, audience, selected, on
               {' '}or choose link-only below.
             </p>
           ) : (
-            groups.map(group => (
+            groups
+              .filter(group => !group.archived || selected.includes(group.id))
+              .map(group => (
               <label key={group.id} className="flex items-center space-x-3 cursor-pointer min-h-[44px]">
                 <input
                   type="checkbox"
@@ -52,7 +54,9 @@ export default function AudiencePicker({ groups, loading, audience, selected, on
                   onChange={() => toggle(group.id)}
                   className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm text-slate-700">{group.name}</span>
+                <span className="text-sm text-slate-700">
+                  {group.name} {group.archived && <span className="text-slate-400 text-xs">(archived)</span>}
+                </span>
               </label>
             ))
           )}

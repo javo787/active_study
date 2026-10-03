@@ -44,6 +44,7 @@ interface AuthContextType {
   updateProfile: (data: ProfileData) => Promise<void>;
   joinGroup: (code: string) => Promise<Group>;
   leaveGroup: (code: string) => Promise<void>;
+  pruneGroups: (ids: string[]) => Promise<void>;
   /** Re-read users/{uid}, e.g. to notice that an admin approved a teacher request. */
   refreshUser: () => Promise<void>;
 }
@@ -58,6 +59,7 @@ const AuthContext = createContext<AuthContextType>({
   updateProfile: async () => {},
   joinGroup: async () => { throw new Error('AuthProvider missing'); },
   leaveGroup: async () => {},
+  pruneGroups: async () => {},
   refreshUser: async () => {},
 });
 
@@ -232,6 +234,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((prev) => prev ? { ...prev, groupIds: (prev.groupIds ?? []).filter(g => g !== code) } : null);
   };
 
+  const pruneGroups = async (ids: string[]) => {
+    if (!user || ids.length === 0) return;
+    await updateDoc(doc(db, 'users', user.uid), { groupIds: arrayRemove(...ids) });
+    setUser((prev) => prev ? { ...prev, groupIds: (prev.groupIds ?? []).filter(g => !ids.includes(g)) } : null);
+  };
+
   const refreshUser = async () => {
     if (!user) return;
     const snap = await getDoc(doc(db, 'users', user.uid));
@@ -247,7 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile, joinGroup, leaveGroup, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile, joinGroup, leaveGroup, pruneGroups, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

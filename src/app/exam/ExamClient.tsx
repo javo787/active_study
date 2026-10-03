@@ -469,6 +469,7 @@ export default function ExamTakingInterface() {
         studentName: user.fullName || user.displayName || user.email,
         studentEmail: user.email,
         studentGroup: user.group || '',
+        groupIds: (exam.groupIds ?? []).filter(id => (user.groupIds ?? []).includes(id)),
         teacherId: exam.createdBy || null,
         examId: exam.id,
         examTitle: exam.title,
