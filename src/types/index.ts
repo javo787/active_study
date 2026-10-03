@@ -33,6 +33,7 @@ export interface Group {
   ownerId: string;
   ownerName?: string;
   createdAt: Date | Timestamp;
+  archived?: boolean;
 }
 
 export interface Question {
@@ -80,6 +81,7 @@ export interface Attempt {
   studentName?: string;
   studentEmail?: string;
   studentGroup?: string;
+  groupIds?: string[];
   examId: string;
   examTitle?: string;
   teacherId?: string | null;

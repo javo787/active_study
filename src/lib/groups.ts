@@ -1,6 +1,6 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { arrayRemove, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Group } from '@/types';
+import { Exam, Group } from '@/types';
 import { appUrl } from './appUrl';
 
 // No 0/O, 1/I/L: codes get read aloud and typed from a projector.
@@ -65,15 +65,81 @@ export async function fetchOwnedGroups(ownerId: string): Promise<Group[]> {
 }
 
 /** Groups that no longer exist (deleted by the teacher) are silently dropped. */
-export async function fetchGroupsByIds(ids: string[]): Promise<Group[]> {
-  const snaps = await Promise.all(ids.map(id => getDoc(doc(db, 'groups', id)).catch(() => null)));
-  return snaps
-    .filter((s): s is NonNullable<typeof s> => !!s && s.exists())
-    .map(s => ({ id: s.id, ...s.data() } as Group));
+export async function fetchGroupsByIds(ids: string[]): Promise<{ groups: Group[]; missingIds: string[] }> {
+  const results = await Promise.allSettled(ids.map(id => getDoc(doc(db, 'groups', id))));
+  const groups: Group[] = [];
+  const missingIds: string[] = [];
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      const snap = result.value;
+      if (snap.exists()) {
+        groups.push({ id: snap.id, ...snap.data() } as Group);
+      } else {
+        missingIds.push(ids[index]);
+      }
+    }
+    // If rejected, we do nothing; transient error must not be treated as deleted.
+  });
+
+  return { groups, missingIds };
 }
 
-export async function deleteGroup(code: string): Promise<void> {
-  await deleteDoc(doc(db, 'groups', code));
+export async function fetchGroupExams(ownerUid: string, groupId: string): Promise<Exam[]> {
+  const snap = await getDocs(query(collection(db, 'exams'), where('createdBy', '==', ownerUid)));
+  const exams = snap.docs.map(d => ({ id: d.id, ...d.data() } as Exam));
+  return exams.filter(e => e.groupIds?.includes(groupId));
+}
+
+export function planGroupDeletion(groupId: string, exams: Exam[]): { unpublishIds: string[]; detachIds: string[] } {
+  const unpublishIds: string[] = [];
+  const detachIds: string[] = [];
+
+  for (const exam of exams) {
+    if (!exam.groupIds || !exam.groupIds.includes(groupId)) continue;
+
+    // If the exam has only this group, or all other groups are somehow empty string (shouldn't happen, but safe)
+    const otherGroups = exam.groupIds.filter(id => id !== groupId);
+    if (otherGroups.length === 0) {
+      unpublishIds.push(exam.id);
+    } else {
+      detachIds.push(exam.id);
+    }
+  }
+
+  return { unpublishIds, detachIds };
+}
+
+export async function deleteGroupCascade(group: Group, exams: Exam[]): Promise<{ unpublished: number; detached: number }> {
+  const { unpublishIds, detachIds } = planGroupDeletion(group.id, exams);
+
+  if (unpublishIds.length + detachIds.length + 1 > 400) {
+    throw new Error('Too many exams to delete at once (batch limit).');
+  }
+
+  const batch = writeBatch(db);
+
+  for (const id of unpublishIds) {
+    batch.update(doc(db, 'exams', id), {
+      groupIds: arrayRemove(group.id),
+      isPublished: false
+    });
+  }
+
+  for (const id of detachIds) {
+    batch.update(doc(db, 'exams', id), {
+      groupIds: arrayRemove(group.id)
+    });
+  }
+
+  batch.delete(doc(db, 'groups', group.id));
+  await batch.commit();
+
+  return { unpublished: unpublishIds.length, detached: detachIds.length };
+}
+
+export async function setGroupArchived(groupId: string, archived: boolean): Promise<void> {
+  await updateDoc(doc(db, 'groups', groupId), { archived });
 }
 
 // A student who opens an invite link while signed out has to log in first

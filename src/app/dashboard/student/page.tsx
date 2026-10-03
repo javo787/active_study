@@ -15,6 +15,8 @@ import {
   peekPendingJoinCode,
 } from '@/lib/groups';
 
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+
 // Firestore allows at most 30 values in array-contains-any.
 const IN_CHUNK = 30;
 
@@ -25,28 +27,43 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 export default function StudentDashboard() {
-  const { user, joinGroup, leaveGroup } = useAuth();
+  const { user, joinGroup, leaveGroup, pruneGroups } = useAuth();
   const [exams, setExams] = useState<Exam[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [attempts, setAttempts] = useState<Record<string, Attempt>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [groupToLeave, setGroupToLeave] = useState<Group | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const pendingHandledRef = useRef(false);
+  const pruningRef = useRef(false);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setError(false);
     try {
       const groupIds = user.groupIds ?? [];
+
+      const { groups: myGroups, missingIds } = await fetchGroupsByIds(groupIds);
+
+      if (missingIds.length > 0 && !pruningRef.current) {
+        pruningRef.current = true;
+        pruneGroups(missingIds).catch(console.error);
+        toast(`\n${missingIds.length} group(s) you were in no longer exist. They were deleted by the teacher.`, { icon: 'ℹ️' });
+      }
+
+      const validGroupIds = myGroups.map(g => g.id);
+
       const attemptsQ = query(collection(db, 'attempts'), where('studentId', '==', user.uid));
       const now = Date.now();
 
-      // Only exams assigned to the student's own groups, never the whole catalogue.
+      // Only exams assigned to the student's valid groups, never the whole catalogue.
       const examSnaps = await Promise.all(
-        chunk(groupIds, IN_CHUNK).map(ids =>
+        chunk(validGroupIds, IN_CHUNK).map(ids =>
           getDocs(query(
             collection(db, 'exams'),
             where('isPublished', '==', true),
@@ -54,10 +71,8 @@ export default function StudentDashboard() {
           ))
         )
       );
-      const [attemptsSnap, myGroups] = await Promise.all([
-        getDocs(attemptsQ),
-        fetchGroupsByIds(groupIds),
-      ]);
+
+      const attemptsSnap = await getDocs(attemptsQ);
 
       const seen = new Set<string>();
       const loadedExams = examSnaps
@@ -86,10 +101,11 @@ export default function StudentDashboard() {
       lastFetchTimeRef.current = Date.now();
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
+      setError(true);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, pruneGroups]);
 
   // An invite link opened before sign-in leaves its code in localStorage.
   useEffect(() => {
@@ -118,10 +134,11 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleLeave = async (group: Group) => {
-    if (!window.confirm(`Leave "${group.name}"?`)) return;
+  const handleLeave = async () => {
+    if (!groupToLeave) return;
     try {
-      await leaveGroup(group.id);
+      await leaveGroup(groupToLeave.id);
+      setGroupToLeave(null);
     } catch {
       toast.error('Could not leave the group');
     }
@@ -146,6 +163,20 @@ export default function StudentDashboard() {
     .filter(a => a.status === 'completed' || a.status === 'flagged')
     .sort((a, b) => (toMillis(b.finishedAt) || 0) - (toMillis(a.finishedAt) || 0));
 
+  if (error) {
+    return (
+      <div className="text-center py-12 space-y-4">
+        <p className="text-slate-600">Could not load your dashboard. Please check your connection.</p>
+        <button
+          onClick={fetchData}
+          className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 min-h-[44px]"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   if (loading && exams.length === 0) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -161,7 +192,9 @@ export default function StudentDashboard() {
     <div className="space-y-8 pb-10">
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
         <form onSubmit={handleJoin} className="flex flex-col sm:flex-row gap-3">
+          <label htmlFor="joinCode" className="sr-only">Join code</label>
           <input
+            id="joinCode"
             type="text"
             value={joinCode}
             onChange={e => setJoinCode(e.target.value)}
@@ -185,7 +218,7 @@ export default function StudentDashboard() {
                 {group.name}
                 <button
                   type="button"
-                  onClick={() => handleLeave(group)}
+                  onClick={() => setGroupToLeave(group)}
                   aria-label={`Leave ${group.name}`}
                   className="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-500"
                 >
@@ -326,6 +359,16 @@ export default function StudentDashboard() {
           <p className="text-xs text-slate-400 mt-2">Results are deleted automatically after 2 days.</p>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={groupToLeave !== null}
+        title="Leave Group"
+        message="You will stop seeing exams assigned only to this group. You will need the code again to rejoin."
+        isDestructive={true}
+        confirmText="Leave"
+        onConfirm={handleLeave}
+        onCancel={() => setGroupToLeave(null)}
+      />
     </div>
   );
 }
