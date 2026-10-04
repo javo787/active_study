@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { NAV_ITEMS, ADMIN_LINKS, getPageTitle, isNavActive } from '@/lib/nav';
 import ProfileSetup from '@/components/ProfileSetup';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { assetPath } from '@/lib/appUrl';
 import { useTranslation } from 'react-i18next';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -162,7 +163,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
          >
            <div className="p-4 border-b border-slate-800 flex items-center justify-between min-h-[56px] pt-safe">
              <div className="flex items-center gap-3">
-               <img src="/logo.png" alt="Logo" className="w-8 h-8 bg-white rounded p-0.5" />
+               <img src={assetPath('/logo.png')} alt="Logo" className="w-8 h-8 bg-white rounded p-0.5" />
                <div>
                  <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
                  <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
@@ -232,7 +233,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-slate-900 text-slate-300 flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <img src="/logo.png" alt="Logo" className="w-10 h-10 bg-white rounded p-1" />
+          <img src={assetPath('/logo.png')} alt="Logo" className="w-10 h-10 bg-white rounded p-1" />
           <div>
             <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
             <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
