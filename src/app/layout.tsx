@@ -17,7 +17,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Active Study",
+  title: "Duxtur Edu",
   description: "Online Examination Platform",
 };
 
