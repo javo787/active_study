@@ -29,6 +29,23 @@ export function formatJoinCode(code: string): string {
   return code.length === JOIN_CODE_LENGTH ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
 
+/** Accepts what people actually paste: "abcd-2345", " ABCD 2345 " or the whole invite link. */
+export function extractJoinCode(input: string): string {
+  const fromLink = input.match(/[?&]code=([^&#\s]+)/i);
+  if (!fromLink) return normalizeJoinCode(input);
+  try {
+    return normalizeJoinCode(decodeURIComponent(fromLink[1]));
+  } catch {
+    return normalizeJoinCode(fromLink[1]); // a broken %-escape: use the text as it is
+  }
+}
+
+/** Live formatting for the code field: ABCD-2345, only letters and digits, at most 8 of them. */
+export function formatJoinInput(input: string): string {
+  const clean = extractJoinCode(input).replace(/[^A-Z0-9]/g, '').slice(0, JOIN_CODE_LENGTH);
+  return clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean;
+}
+
 export function inviteLink(code: string): string {
   return appUrl(`/join?code=${code}`);
 }
@@ -39,7 +56,7 @@ export function groupCode(group: Pick<Group, 'id' | 'joinCode'>): string {
 }
 
 export class JoinGroupError extends Error {
-  constructor(public code: 'invalid' | 'not_found' | 'closed' | 'removed' | 'failed', message: string) {
+  constructor(public code: 'invalid' | 'not_found' | 'closed' | 'removed' | 'limit' | 'archived' | 'failed', message: string) {
     super(message);
   }
 }
@@ -322,13 +339,25 @@ function memberRecord(student: GroupStudent, code: string) {
   return { name: student.name.slice(0, 120), code, joinedAt: serverTimestamp() };
 }
 
+/** The most groups one student can be in (the rules enforce the same number). */
+export const MAX_GROUPS = 30;
+
+export type JoinStatus = 'joinable' | 'member' | 'closed' | 'removed' | 'limit' | 'archived';
+
+export interface JoinPreview {
+  group: Group;
+  /** The normalized code that was entered. */
+  code: string;
+  status: JoinStatus;
+}
+
 /**
- * A student enters a code. For a current group the members record and groupIds are written in ONE batch (the
- * rules refuse groupIds without a valid code and a record). Legacy groups still accept the plain groupIds update.
+ * Looks a code up and says what would happen if the student joined, without writing anything. The join card shows
+ * this so nobody enters a group (or fails to) without knowing which group it is and why.
  */
-export async function joinGroupByCode(student: GroupStudent, rawCode: string): Promise<Group> {
-  const code = normalizeJoinCode(rawCode);
-  if (!isValidJoinCode(code)) throw new JoinGroupError('invalid', 'That code does not look right');
+export async function previewJoin(student: GroupStudent, rawCode: string): Promise<JoinPreview> {
+  const code = extractJoinCode(rawCode);
+  if (!isValidJoinCode(code)) throw new JoinGroupError('invalid', 'That code does not look right. A code has 8 letters and digits, like ABCD-2345.');
 
   const notFound = new JoinGroupError('not_found', 'No group with this code. It may have been replaced: ask your teacher for the current one.');
 
@@ -347,19 +376,50 @@ export async function joinGroupByCode(student: GroupStudent, rawCode: string): P
 
   // The id of a current group is not an invitation; only its code is.
   if (current && !viaCode) throw notFound;
-  if (current && group.joinOpen === false) {
-    throw new JoinGroupError('closed', 'This group is not accepting new students right now. Ask your teacher.');
-  }
 
-  if ((student.groupIds ?? []).includes(groupId)) {
+  const ids = student.groupIds ?? [];
+  let status: JoinStatus = 'joinable';
+  if (ids.includes(groupId)) status = 'member';
+  else if (await wasRemoved(student.uid, groupId)) status = 'removed';
+  else if (current && group.joinOpen === false) status = 'closed';
+  else if (group.archived) status = 'archived';
+  else if (ids.length >= MAX_GROUPS) status = 'limit';
+
+  return { group, code, status };
+}
+
+export type JoinRefusal = Exclude<JoinStatus, 'joinable' | 'member'>;
+
+const REFUSALS: Record<JoinRefusal, [JoinGroupError['code'], string]> = {
+  closed: ['closed', 'This group is not accepting new students right now. Ask your teacher.'],
+  removed: ['removed', 'You were removed from this group. Ask your teacher if you should be back.'],
+  archived: ['archived', 'This group was archived by the teacher, so it is not accepting students.'],
+  limit: ['limit', `You are already in ${MAX_GROUPS} groups, the maximum. Leave one to join another.`],
+};
+
+/** What to tell a student who cannot join, and what to do about it. */
+export function refusalMessage(status: JoinRefusal): string {
+  return REFUSALS[status][1];
+}
+
+/**
+ * A student enters a code. For a current group the members record and groupIds are written in ONE batch (the
+ * rules refuse groupIds without a valid code and a record). Legacy groups still accept the plain groupIds update.
+ */
+export async function joinGroupByCode(student: GroupStudent, rawCode: string): Promise<Group> {
+  const { group, code, status } = await previewJoin(student, rawCode);
+
+  if (status === 'member') {
     await ensureMemberRecord(student, group).catch(() => {});
     return group;
   }
-
-  if (await wasRemoved(student.uid, groupId)) {
-    throw new JoinGroupError('removed', 'You were removed from this group. Ask your teacher if you should be back.');
+  if (status !== 'joinable') {
+    const [reason, message] = REFUSALS[status];
+    throw new JoinGroupError(reason, message);
   }
 
+  const groupId = group.id;
+  const current = typeof group.joinCode === 'string';
   const batch = writeBatch(db);
   batch.set(doc(db, 'groups', groupId, 'members', student.uid), memberRecord(student, code));
   batch.update(doc(db, 'users', student.uid), { groupIds: arrayUnion(groupId) });
@@ -377,7 +437,7 @@ export async function joinGroupByCode(student: GroupStudent, rawCode: string): P
     } else {
       console.error('Error joining group', error);
     }
-    throw new JoinGroupError('failed', 'Could not join the group');
+    throw new JoinGroupError('failed', 'Could not join the group. Check your connection and try again.');
   }
   return group;
 }

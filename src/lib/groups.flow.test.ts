@@ -88,7 +88,9 @@ import {
   groupCode,
   joinGroupByCode,
   leaveGroupMembership,
+  MAX_GROUPS,
   migrateLegacyGroup,
+  previewJoin,
   reconcileMemberships,
   removeMember,
   restoreMember,
@@ -181,6 +183,54 @@ describe('joinGroupByCode', () => {
     deniedWrites = () => true;
     await expect(joinGroupByCode(student(), CODE)).rejects.toBeInstanceOf(JoinGroupError);
     expect(store.get('users/s1')?.groupIds).toEqual([]);
+  });
+});
+
+describe('previewJoin: what would happen, without writing', () => {
+  it('a normal group is joinable and nothing is written', async () => {
+    seedCurrent({ ownerName: 'Dr. Rahimov', description: 'Mondays' });
+    const preview = await previewJoin(student(), 'QRST-2345');
+    expect(preview.status).toBe('joinable');
+    expect(preview.group).toMatchObject({ id: GID, name: 'Anatomy', ownerName: 'Dr. Rahimov', description: 'Mondays' });
+    expect(store.has(`groups/${GID}/members/s1`)).toBe(false);
+    expect(store.get('users/s1')?.groupIds).toEqual([]);
+  });
+
+  it('accepts the whole invite link', async () => {
+    seedCurrent();
+    expect((await previewJoin(student(), 'https://duxtur.org/edu/join?code=QRST2345')).group.id).toBe(GID);
+  });
+
+  it.each([
+    ['member', () => seedCurrent(), student([GID])],
+    ['closed', () => seedCurrent({ joinOpen: false }), student()],
+    ['archived', () => seedCurrent({ archived: true }), student()],
+    ['removed', () => { seedCurrent(); store.set(`groups/${GID}/removed/s1`, { name: 'A' }); }, student()],
+    ['limit', () => seedCurrent(), student(Array.from({ length: MAX_GROUPS }, (_, i) => `G${i}`))],
+  ] as const)('status %s', async (status, seed, who) => {
+    seed();
+    expect((await previewJoin(who, CODE)).status).toBe(status);
+  });
+
+  it('a member of a closed or archived group still sees "member", not an error', async () => {
+    seedCurrent({ joinOpen: false, archived: true });
+    expect((await previewJoin(student([GID]), CODE)).status).toBe('member');
+  });
+
+  it('joining refuses archived groups and the 30-group limit with their own reasons', async () => {
+    seedCurrent({ archived: true });
+    await expect(joinGroupByCode(student(), CODE)).rejects.toMatchObject({ code: 'archived' });
+    seedCurrent();
+    const full = Array.from({ length: MAX_GROUPS }, (_, i) => `G${i}`);
+    await expect(joinGroupByCode(student(full), CODE)).rejects.toMatchObject({ code: 'limit' });
+    expect(store.get('users/s1')?.groupIds).toEqual([]);
+  });
+
+  it('every refusal says what to do', async () => {
+    seedCurrent({ joinOpen: false });
+    await expect(joinGroupByCode(student(), CODE)).rejects.toThrow(/ask your teacher/i);
+    await expect(previewJoin(student(), 'WXYZ6789')).rejects.toThrow(/ask your teacher/i);
+    await expect(previewJoin(student(), 'abc')).rejects.toThrow(/8 letters and digits/i);
   });
 });
 
