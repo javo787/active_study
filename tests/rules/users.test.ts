@@ -1,9 +1,9 @@
 import { describe, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { arrayRemove, arrayUnion, collection, deleteField, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
-import { CODE_A, CODE_B, baseCast, seed, useRulesEnv, userDoc } from './helpers';
+import { CODE_A, CODE_B, baseCast, seed, rulesEnv, userDoc } from './helpers';
 
-const getEnv = useRulesEnv();
+const getEnv = rulesEnv();
 
 describe('users: creating the own profile', () => {
   it('a new account may create its own student document', async () => {

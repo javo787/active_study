@@ -13,11 +13,16 @@ setLogLevel('silent');
 export const CODE_A = 'ABCD2345';
 export const CODE_B = 'EFGH6789';
 export const CODE_C = 'JKMN2345';
+export const CODE_D = 'QRST2345';
+export const CODE_E = 'WXYZ6789';
+
+// A "current" group: the id is NOT the join code, the code lives in joinCodes/{code}.
+export const GID = 'grpAnatomy0001';
 
 export type Role = 'student' | 'teacher' | 'admin';
 
 /** Starts one rules environment per test file and wipes the database before every test. */
-export function useRulesEnv(): () => RulesTestEnvironment {
+export function rulesEnv(): () => RulesTestEnvironment {
   let env: RulesTestEnvironment;
 
   beforeAll(async () => {
@@ -78,3 +83,16 @@ export const baseCast: Record<string, Record<string, unknown>> = {
   'users/admin1': userDoc('admin'),
   [`groups/${CODE_A}`]: groupDoc('teacher1'),
 };
+
+/** Seed entries for a current group: the group document plus its active join code. */
+export function currentGroup(
+  gid: string,
+  code: string,
+  ownerId: string,
+  extra: Record<string, unknown> = {},
+): Record<string, Record<string, unknown>> {
+  return {
+    [`groups/${gid}`]: groupDoc(ownerId, { joinCode: code, joinOpen: true, archived: false, ...extra }),
+    [`joinCodes/${code}`]: { groupId: gid, active: true },
+  };
+}
