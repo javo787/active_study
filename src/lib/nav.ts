@@ -6,29 +6,29 @@ export interface NavItem {
 import { BarChart, Users, BookOpen, Settings } from 'lucide-react';
 
 export const ADMIN_LINKS = [
-  { href: '/dashboard/admin', label: 'Overview', icon: BarChart },
-  { href: '/dashboard/admin/users', label: 'User Management', icon: Users },
-  { href: '/dashboard/admin/exams', label: 'Exam Overview', icon: BookOpen },
-  { href: '/dashboard/admin/settings', label: 'Platform Settings', icon: Settings },
+  { href: '/dashboard/admin', i18nKey: 'nav.admin_overview', icon: BarChart },
+  { href: '/dashboard/admin/users', i18nKey: 'nav.user_management', icon: Users },
+  { href: '/dashboard/admin/exams', i18nKey: 'nav.exam_overview', icon: BookOpen },
+  { href: '/dashboard/admin/settings', i18nKey: 'nav.platform_settings', icon: Settings },
 ];
 
 export const NAV_ITEMS = {
   admin: [
-    { href: '/dashboard/admin', label: 'Admin Dashboard' },
-    { href: '/dashboard/teacher', label: 'Teacher Tools' },
-    { href: '/dashboard/profile', label: 'Profile' },
+    { href: '/dashboard/admin', i18nKey: 'nav.admin_dashboard' },
+    { href: '/dashboard/teacher', i18nKey: 'nav.teacher_tools' },
+    { href: '/dashboard/profile', i18nKey: 'nav.profile' },
   ],
   teacher: [
-    { href: '/dashboard/teacher', label: 'Dashboard' },
-    { href: '/dashboard/teacher/exams', label: 'My Exams' },
-    { href: '/dashboard/teacher/groups', label: 'Groups' },
-    { href: '/dashboard/teacher/attempts', label: 'Attempts' },
-    { href: '/dashboard/teacher/importer', label: 'Import' },
-    { href: '/dashboard/profile', label: 'Profile' },
+    { href: '/dashboard/teacher', i18nKey: 'nav.teacher_dashboard' },
+    { href: '/dashboard/teacher/exams', i18nKey: 'nav.my_exams' },
+    { href: '/dashboard/teacher/groups', i18nKey: 'nav.groups' },
+    { href: '/dashboard/teacher/attempts', i18nKey: 'nav.attempts' },
+    { href: '/dashboard/teacher/importer', i18nKey: 'nav.import' },
+    { href: '/dashboard/profile', i18nKey: 'nav.profile' },
   ],
   student: [
-    { href: '/dashboard/student', label: 'Student Dashboard' },
-    { href: '/dashboard/profile', label: 'Profile' },
+    { href: '/dashboard/student', i18nKey: 'nav.student_dashboard' },
+    { href: '/dashboard/profile', i18nKey: 'nav.profile' },
   ]
 } as const;
 
@@ -43,26 +43,26 @@ export function isNavActive(pathname: string, href: string): boolean {
 }
 
 const TITLE_MAP: Record<string, string> = {
-  '/dashboard/student': 'Exams',
-  '/dashboard/teacher': 'Dashboard',
-  '/dashboard/teacher/exams': 'My Exams',
-  '/dashboard/teacher/exams/create': 'New Exam',
-  '/dashboard/teacher/groups': 'Groups',
-  '/dashboard/teacher/exam': 'Manage Exam',
-  '/dashboard/teacher/attempts': 'Attempts',
-  '/dashboard/teacher/importer': 'Import Test',
-  '/dashboard/admin': 'Admin Overview',
-  '/dashboard/admin/users': 'User Management',
-  '/dashboard/admin/exams': 'Exam Overview',
-  '/dashboard/admin/settings': 'Platform Settings',
-  '/dashboard/profile': 'Profile'
+  '/dashboard/student': 'nav.student_dashboard',
+  '/dashboard/teacher': 'nav.teacher_dashboard',
+  '/dashboard/teacher/exams': 'nav.my_exams',
+  '/dashboard/teacher/exams/create': 'common.create',
+  '/dashboard/teacher/groups': 'nav.groups',
+  '/dashboard/teacher/exam': 'common.edit',
+  '/dashboard/teacher/attempts': 'nav.attempts',
+  '/dashboard/teacher/importer': 'nav.import',
+  '/dashboard/admin': 'nav.admin_overview',
+  '/dashboard/admin/users': 'nav.user_management',
+  '/dashboard/admin/exams': 'nav.exam_overview',
+  '/dashboard/admin/settings': 'nav.platform_settings',
+  '/dashboard/profile': 'nav.profile'
 };
 
-export function getPageTitle(pathname: string): string {
-  if (TITLE_MAP[pathname]) return TITLE_MAP[pathname];
+export function getPageTitle(pathname: string, t: (key: string, defaultValue: string) => string): string {
+  if (TITLE_MAP[pathname]) return t(TITLE_MAP[pathname], TITLE_MAP[pathname]);
 
   const parts = pathname.split('/').filter(Boolean);
   const lastPart = parts[parts.length - 1];
-  if (!lastPart) return 'Dashboard';
+  if (!lastPart) return t('nav.dashboard', 'Dashboard');
   return lastPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }

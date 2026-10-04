@@ -1,5 +1,21 @@
 import { Timestamp } from 'firebase/firestore';
 
+export function formatDate(v: Date | Timestamp | null | undefined, locale: string = 'ru'): string {
+  const date = toDate(v);
+  if (!date) return '';
+
+  const options: Intl.DateTimeFormatOptions = {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  };
+
+  // Convert i18next code to valid BCP 47 language tag for Intl
+  const intlLocale = locale === 'tj' ? 'tg-TJ' : locale;
+
+  return new Intl.DateTimeFormat(intlLocale, options).format(date);
+}
+
 export function toMillis(v: Date | Timestamp | null | undefined): number | null {
   if (!v) return null;
   if (v instanceof Timestamp || (typeof v === 'object' && 'seconds' in v)) {

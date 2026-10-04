@@ -1,0 +1,55 @@
+{
+  "translation": {
+    "auth": {
+      "title": "Active Study",
+      "subtitle": "Войдите в систему для доступа",
+      "continue_google": "Продолжить с Google",
+      "signing_in": "Вход...",
+      "continue_telegram": "Продолжить с Telegram",
+      "starting": "Запуск...",
+      "tg_instructions_1": "1. Откройте Telegram и нажмите <b>Запустить</b>.",
+      "tg_instructions_2": "2. Нажмите <b>Подтвердить</b> в боте.",
+      "tg_instructions_3": "3. Вернитесь сюда — вход выполнится автоматически.",
+      "open_telegram": "Открыть Telegram",
+      "waiting": "Ожидание подтверждения...",
+      "cancel": "Отмена",
+      "footer": "Надежная платформа для онлайн-экзаменов.",
+      "error_expired": "Срок действия ссылки Telegram истек. Пожалуйста, попробуйте снова.",
+      "error_failed": "Не удалось войти через Telegram. Откройте Диагностику ниже для деталей."
+    },
+    "nav": {
+      "admin_dashboard": "Панель администратора",
+      "teacher_tools": "Инструменты преподавателя",
+      "profile": "Профиль",
+      "teacher_dashboard": "Дашборд",
+      "my_exams": "Мои экзамены",
+      "groups": "Группы",
+      "attempts": "Попытки",
+      "import": "Импорт",
+      "student_dashboard": "Панель студента",
+      "sign_out": "Выйти",
+      "admin_overview": "Обзор",
+      "user_management": "Пользователи",
+      "exam_overview": "Обзор экзаменов",
+      "platform_settings": "Настройки платформы",
+      "menu": "Меню",
+      "close": "Закрыть",
+      "student_portal": "Портал Студента",
+      "teacher_portal": "Портал Преподавателя",
+      "admin_portal": "Портал Администратора",
+      "dashboard": "Дашборд"
+    },
+    "common": {
+      "save": "Сохранить",
+      "cancel": "Отмена",
+      "delete": "Удалить",
+      "edit": "Редактировать",
+      "create": "Создать",
+      "loading": "Загрузка...",
+      "success": "Успешно",
+      "error": "Ошибка",
+      "confirm": "Подтвердить",
+      "back": "Назад"
+    }
+  }
+}

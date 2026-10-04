@@ -45,3 +45,4 @@ replace*.py
 firestore-debug.log
 ui-debug.log
 firebase-debug.log
+server.log

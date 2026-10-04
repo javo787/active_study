@@ -1,0 +1,55 @@
+{
+  "translation": {
+    "auth": {
+      "title": "Active Study",
+      "subtitle": "Барои дастрасӣ ба система ворид шавед",
+      "continue_google": "Идома бо Google",
+      "signing_in": "Воридшавӣ...",
+      "continue_telegram": "Идома бо Telegram",
+      "starting": "Оғоз...",
+      "tg_instructions_1": "1. Telegram-ро кушоед ва <b>Оғоз</b>-ро пахш кунед.",
+      "tg_instructions_2": "2. Дар бот <b>Тасдиқ</b>-ро пахш кунед.",
+      "tg_instructions_3": "3. Ба ин ҷо баргардед — вуруд ба таври худкор анҷом меёбад.",
+      "open_telegram": "Кушодани Telegram",
+      "waiting": "Интизори тасдиқ...",
+      "cancel": "Бекор кардан",
+      "footer": "Платформаи боэътимоди имтиҳонҳои онлайнӣ.",
+      "error_expired": "Мӯҳлати пайванди Telegram ба охир расид. Лутфан, бори дигар кӯшиш кунед.",
+      "error_failed": "Вуруд тавассути Telegram муяссар нашуд. Барои тафсилот Диагностикаро кушоед."
+    },
+    "nav": {
+      "admin_dashboard": "Панели мудир",
+      "teacher_tools": "Абзорҳои омӯзгор",
+      "profile": "Профил",
+      "teacher_dashboard": "Дашборд",
+      "my_exams": "Имтиҳонҳои ман",
+      "groups": "Гурӯҳҳо",
+      "attempts": "Кӯшишҳо",
+      "import": "Воридот",
+      "student_dashboard": "Панели донишҷӯ",
+      "sign_out": "Баромадан",
+      "admin_overview": "Баррасӣ",
+      "user_management": "Идоракунии корбарон",
+      "exam_overview": "Баррасии имтиҳонҳо",
+      "platform_settings": "Танзимоти платформа",
+      "menu": "Меню",
+      "close": "Пӯшидан",
+      "student_portal": "Портали Донишҷӯ",
+      "teacher_portal": "Портали Омӯзгор",
+      "admin_portal": "Портали Мудир",
+      "dashboard": "Дашборд"
+    },
+    "common": {
+      "save": "Захира кардан",
+      "cancel": "Бекор кардан",
+      "delete": "Нест кардан",
+      "edit": "Таҳрир кардан",
+      "create": "Эҷод кардан",
+      "loading": "Боргирӣ...",
+      "success": "Муваффақият",
+      "error": "Хатогӣ",
+      "confirm": "Тасдиқ",
+      "back": "Ақиб"
+    }
+  }
+}
