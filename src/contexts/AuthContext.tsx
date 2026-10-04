@@ -2,13 +2,13 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, signInWithPopup, signInWithCustomToken, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp, deleteField, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { Group, TeacherStatus, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
 import { startTelegramLogin, waitForTelegramLogin, TelegramLoginSession } from '@/lib/telegramAuth';
 import { describeError, tgLog } from '@/lib/tgLog';
-import { JoinGroupError, isValidJoinCode, normalizeJoinCode } from '@/lib/groups';
+import { joinGroupByCode, leaveGroupMembership } from '@/lib/groups';
 
 interface AppUser {
   uid: string;
@@ -209,29 +209,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const joinGroup = async (rawCode: string): Promise<Group> => {
-    if (!user) throw new JoinGroupError('failed', 'Not signed in');
-    const code = normalizeJoinCode(rawCode);
-    if (!isValidJoinCode(code)) throw new JoinGroupError('invalid', 'That code does not look right');
-
-    const snap = await getDoc(doc(db, 'groups', code));
-    if (!snap.exists()) throw new JoinGroupError('not_found', 'No group with this code');
-
-    if (!(user.groupIds ?? []).includes(code)) {
-      try {
-        await updateDoc(doc(db, 'users', user.uid), { groupIds: arrayUnion(code) });
-      } catch (error) {
-        console.error('Error joining group', error);
-        throw new JoinGroupError('failed', 'Could not join the group');
-      }
-      setUser((prev) => prev ? { ...prev, groupIds: [...(prev.groupIds ?? []), code] } : null);
-    }
-    return { id: snap.id, ...snap.data() } as Group;
+    if (!user) throw new Error('Not signed in');
+    const group = await joinGroupByCode(
+      { uid: user.uid, name: user.fullName || user.displayName, groupIds: user.groupIds },
+      rawCode,
+    );
+    setUser((prev) => prev && !(prev.groupIds ?? []).includes(group.id)
+      ? { ...prev, groupIds: [...(prev.groupIds ?? []), group.id] }
+      : prev);
+    return group;
   };
 
-  const leaveGroup = async (code: string) => {
+  const leaveGroup = async (groupId: string) => {
     if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid), { groupIds: arrayRemove(code) });
-    setUser((prev) => prev ? { ...prev, groupIds: (prev.groupIds ?? []).filter(g => g !== code) } : null);
+    await leaveGroupMembership(user.uid, groupId);
+    setUser((prev) => prev ? { ...prev, groupIds: (prev.groupIds ?? []).filter(g => g !== groupId) } : null);
   };
 
   const pruneGroups = async (ids: string[]) => {

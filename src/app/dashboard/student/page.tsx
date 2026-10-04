@@ -11,20 +11,16 @@ import { formatTimeLeft, toMillis } from '@/lib/time';
 import {
   JoinGroupError,
   clearPendingJoinCode,
+  chunk,
   fetchGroupsByIds,
   peekPendingJoinCode,
+  reconcileMemberships,
 } from '@/lib/groups';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 // Firestore allows at most 30 values in array-contains-any.
 const IN_CHUNK = 30;
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
 
 export default function StudentDashboard() {
   const { user, joinGroup, leaveGroup, pruneGroups } = useAuth();
@@ -56,7 +52,18 @@ export default function StudentDashboard() {
         toast(`\n${missingIds.length} group(s) you were in no longer exist. They were deleted by the teacher.`, { icon: 'ℹ️' });
       }
 
-      const validGroupIds = myGroups.map(g => g.id);
+      // Groups the owner removed this student from are dropped here: the owner cannot edit a student's profile.
+      const { removedIds } = await reconcileMemberships(
+        { uid: user.uid, name: user.fullName || user.displayName },
+        myGroups,
+      );
+      if (removedIds.length > 0) {
+        pruneGroups(removedIds).catch(console.error);
+        toast(`You were removed from ${removedIds.length} group(s) by the teacher.`, { icon: 'ℹ️' });
+      }
+
+      const keptGroups = myGroups.filter(g => !removedIds.includes(g.id));
+      const validGroupIds = keptGroups.map(g => g.id);
 
       const attemptsQ = query(collection(db, 'attempts'), where('studentId', '==', user.uid));
       const now = Date.now();
@@ -86,7 +93,7 @@ export default function StudentDashboard() {
           if (expMs && expMs <= now) return false;
           return true;
         });
-      setGroups(myGroups);
+      setGroups(keptGroups);
       const attemptsMap: Record<string, Attempt> = {};
 
       attemptsSnap.docs.forEach(doc => {

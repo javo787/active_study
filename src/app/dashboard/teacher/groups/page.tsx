@@ -5,7 +5,7 @@ import { toast } from 'react-hot-toast';
 import { Archive, Copy, Link2, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Group } from '@/types';
-import { createGroup, deleteGroupCascade, fetchGroupExams, fetchOwnedGroups, formatJoinCode, inviteLink, planGroupDeletion, setGroupArchived } from '@/lib/groups';
+import { createGroup, deleteGroupCascade, fetchGroupExams, fetchOwnedGroups, formatJoinCode, groupCode, inviteLink, migrateLegacyGroup, planGroupDeletion, setGroupArchived } from '@/lib/groups';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
 
@@ -26,7 +26,16 @@ export default function TeacherGroups() {
     setLoading(true);
     setError(false);
     try {
-      setGroups(await fetchOwnedGroups(user.uid));
+      const owned = await fetchOwnedGroups(user.uid);
+      setGroups(owned);
+      // Groups created before the rework become current ones (same code), one at a time and without blocking the page.
+      for (const group of owned.filter(g => !g.joinCode)) {
+        migrateLegacyGroup(group)
+          .then(migrated => {
+            if (migrated.joinCode) setGroups(prev => prev.map(g => g.id === migrated.id ? migrated : g));
+          })
+          .catch(console.error);
+      }
     } catch (error) {
       console.error(error);
       toast.error('Failed to load groups');
@@ -199,17 +208,17 @@ export default function TeacherGroups() {
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <span className="font-mono text-2xl tracking-widest text-slate-900 bg-slate-100 rounded-md px-3 py-1 self-start">
-                  {formatJoinCode(group.id)}
+                  {formatJoinCode(groupCode(group))}
                 </span>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => copy(group.id, 'Code copied')}
+                    onClick={() => copy(groupCode(group), 'Code copied')}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300 min-h-[44px] text-sm"
                   >
                     <Copy className="w-4 h-4" /> Copy code
                   </button>
                   <button
-                    onClick={() => copy(inviteLink(group.id), 'Invite link copied')}
+                    onClick={() => copy(inviteLink(groupCode(group)), 'Invite link copied')}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300 min-h-[44px] text-sm"
                   >
                     <Link2 className="w-4 h-4" /> Copy invite link

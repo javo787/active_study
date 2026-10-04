@@ -34,6 +34,12 @@ export interface Group {
   ownerName?: string;
   createdAt: Date | Timestamp;
   archived?: boolean;
+  /** Present on current groups: the code students type (a joinCodes/{code} document points back here). */
+  joinCode?: string;
+  /** false = nobody can join, even with the code. Missing = open. */
+  joinOpen?: boolean;
+  description?: string;
+  updatedAt?: Date | Timestamp;
 }
 
 export interface Question {
