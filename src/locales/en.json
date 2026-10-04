@@ -15,7 +15,12 @@
       "cancel": "Cancel",
       "footer": "Secure, reliable online examination platform.",
       "error_expired": "The Telegram link expired. Please try again.",
-      "error_failed": "Telegram sign-in failed. Open Diagnostics below for details."
+      "error_failed": "Telegram sign-in failed. Open Diagnostics below for details.",
+      "continue_as": "Continue as {{name}}",
+      "duxtur_account": "duxtur.org account",
+      "duxtur_first_time": "This creates your Edu profile from your duxtur.org account. Already used Edu with Telegram or Google? Sign in that way and link duxtur.org in your profile instead.",
+      "duxtur_failed": "Could not sign in with duxtur.org.",
+      "or": "or"
     },
     "nav": {
       "admin_dashboard": "Admin Dashboard",
@@ -51,6 +56,50 @@
       "error": "Error",
       "confirm": "Confirm",
       "back": "Back"
+    },
+    "account": {
+      "title": "Sign-in methods",
+      "intro": "One person, one account. Link your duxtur.org account to sign in to both with the same profile.",
+      "current": "You are signed in with",
+      "methods": {
+        "telegram": "Telegram",
+        "google": "Google",
+        "duxtur": "duxtur.org",
+        "unknown": "Unknown"
+      },
+      "portal_title": "duxtur.org account",
+      "checking": "Checking duxtur.org...",
+      "not_signed_in": "You are not signed in to duxtur.org in this browser.",
+      "sign_in_portal": "Sign in on duxtur.org",
+      "linked": "Linked: {{name}}",
+      "linkable": "You are signed in to duxtur.org as {{name}}. This account is not linked to an Edu account yet.",
+      "link": "Link this account",
+      "linking": "Linking...",
+      "link_confirm_title": "Link to duxtur.org?",
+      "link_confirm_body": "Your Edu account ({{method}}) will be linked to the duxtur.org account {{name}} ({{email}}). From now on \"Continue as\" on the sign-in page opens this Edu profile, with its groups and results. You can unlink at any time.",
+      "link_confirm": "Link",
+      "linked_elsewhere": "{{name}} on duxtur.org is already linked to another Edu account, so it cannot be linked to this one. Sign in to Edu with duxtur.org to open that account and unlink it there.",
+      "unlink": "Unlink",
+      "unlinking": "Unlinking...",
+      "unlink_confirm_title": "Unlink duxtur.org?",
+      "unlink_confirm_body": "Signing in with duxtur.org will no longer open this Edu profile. Its groups and results stay in it, and you can still sign in the way you do now.",
+      "done_linked": "duxtur.org account linked.",
+      "done_unlinked": "duxtur.org account unlinked.",
+      "errors": {
+        "not_signed_in": "You are not signed in to duxtur.org. Sign in there and try again.",
+        "bad_origin": "The request was refused. Open Edu from a duxtur.org page.",
+        "invalid_id_token": "Your Edu sign-in could not be verified. Sign out of Edu, sign in again and retry.",
+        "edu_uid_taken": "This Edu account is already linked to another duxtur.org account.",
+        "portal_already_linked": "This duxtur.org account already has another Edu account linked. Unlink that one first.",
+        "invalid_uid": "This Edu account cannot be linked.",
+        "not_found": "Account not found.",
+        "rate_limited": "Too many attempts. Wait a minute.",
+        "network": "Cannot reach duxtur.org. Check your connection.",
+        "server": "duxtur.org is unavailable right now. Try again later.",
+        "bad_response": "duxtur.org sent an unexpected answer. Try again later.",
+        "cannot_unlink": "This Edu profile can only be reached through duxtur.org, so it cannot be unlinked."
+      },
+      "cannot_unlink": "This Edu profile was created from your duxtur.org account, so duxtur.org is its only way to sign in and it cannot be unlinked."
     }
   }
 }
