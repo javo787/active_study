@@ -9,7 +9,6 @@ import { Exam, Attempt, Group } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatTimeLeft, toMillis } from '@/lib/time';
 import {
-  JoinGroupError,
   clearPendingJoinCode,
   chunk,
   fetchGroupsByIds,
@@ -18,21 +17,24 @@ import {
 } from '@/lib/groups';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { JoinByCode } from '@/components/groups/JoinByCode';
+import { MyGroups } from '@/components/groups/MyGroups';
 
 // Firestore allows at most 30 values in array-contains-any.
 const IN_CHUNK = 30;
 
 export default function StudentDashboard() {
-  const { user, joinGroup, leaveGroup, pruneGroups } = useAuth();
+  const { user, leaveGroup, pruneGroups } = useAuth();
   const [exams, setExams] = useState<Exam[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [joinCode, setJoinCode] = useState('');
-  const [joining, setJoining] = useState(false);
   const [attempts, setAttempts] = useState<Record<string, Attempt>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupToLeave, setGroupToLeave] = useState<Group | null>(null);
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  // A code remembered from an invite link opened before signing in: shown as a confirmation card, never joined silently.
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const pendingHandledRef = useRef(false);
   const pruningRef = useRef(false);
@@ -120,31 +122,15 @@ export default function StudentDashboard() {
     const code = peekPendingJoinCode();
     if (!code) return;
     pendingHandledRef.current = true;
-    joinGroup(code)
-      .then(group => toast.success(`Joined ${group.name}`))
-      .catch(err => toast.error(err instanceof JoinGroupError ? err.message : 'Could not join the group'))
-      .finally(clearPendingJoinCode);
-  }, [user, joinGroup]);
-
-  const handleJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!joinCode.trim()) return;
-    setJoining(true);
-    try {
-      const group = await joinGroup(joinCode);
-      toast.success(`Joined ${group.name}`);
-      setJoinCode('');
-    } catch (err) {
-      toast.error(err instanceof JoinGroupError ? err.message : 'Could not join the group');
-    } finally {
-      setJoining(false);
-    }
-  };
+    clearPendingJoinCode();
+    setPendingCode(code);
+  }, [user]);
 
   const handleLeave = async () => {
     if (!groupToLeave) return;
     try {
       await leaveGroup(groupToLeave.id);
+      if (groupFilter === groupToLeave.id) setGroupFilter(null);
       setGroupToLeave(null);
     } catch {
       toast.error('Could not leave the group');
@@ -165,7 +151,10 @@ export default function StudentDashboard() {
   const examGroupNames = (exam: Exam) =>
     groups.filter(g => exam.groupIds?.includes(g.id)).map(g => g.name).join(', ');
 
-  const filteredExams = exams.filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredExams = exams
+    .filter(e => !groupFilter || e.groupIds?.includes(groupFilter))
+    .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredGroup = groupFilter ? groups.find(g => g.id === groupFilter) : undefined;
   const pastAttempts = Object.values(attempts)
     .filter(a => a.status === 'completed' || a.status === 'flagged')
     .sort((a, b) => (toMillis(b.finishedAt) || 0) - (toMillis(a.finishedAt) || 0));
@@ -197,45 +186,9 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-8 pb-10">
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-        <form onSubmit={handleJoin} className="flex flex-col sm:flex-row gap-3">
-          <label htmlFor="joinCode" className="sr-only">Join code</label>
-          <input
-            id="joinCode"
-            type="text"
-            value={joinCode}
-            onChange={e => setJoinCode(e.target.value)}
-            placeholder="Group code from your teacher, e.g. ABCD-2345"
-            autoCapitalize="characters"
-            autoComplete="off"
-            className="flex-1 px-4 py-2 border border-slate-300 rounded-md min-h-[44px] font-mono"
-          />
-          <button
-            type="submit"
-            disabled={joining || !joinCode.trim()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md min-h-[44px] hover:bg-blue-700 disabled:opacity-50"
-          >
-            {joining ? 'Joining...' : 'Join group'}
-          </button>
-        </form>
-        {groups.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {groups.map(group => (
-              <span key={group.id} className="inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-full bg-slate-100 text-sm text-slate-700">
-                {group.name}
-                <button
-                  type="button"
-                  onClick={() => setGroupToLeave(group)}
-                  aria-label={`Leave ${group.name}`}
-                  className="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-500"
-                >
-                  &times;
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      <JoinByCode initialCode={pendingCode} />
+
+      <MyGroups groups={groups} exams={exams} activeGroupId={groupFilter} onFilter={setGroupFilter} onLeave={setGroupToLeave} />
 
       <div>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -255,6 +208,13 @@ export default function StudentDashboard() {
             </button>
           </div>
         </div>
+
+        {filteredGroup && (
+          <div className="flex items-center justify-between gap-3 mb-4 rounded-md bg-blue-50 border border-blue-100 px-3 py-2 text-sm text-blue-900">
+            <span>Showing the exams of {filteredGroup.name}</span>
+            <button type="button" onClick={() => setGroupFilter(null)} className="font-medium underline min-h-[44px] px-2">Show all</button>
+          </div>
+        )}
 
         {filteredExams.length === 0 ? (
           <p className="text-slate-500">
