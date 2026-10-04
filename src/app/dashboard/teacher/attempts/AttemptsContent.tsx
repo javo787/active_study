@@ -4,11 +4,18 @@ import React, { useEffect, useState, useMemo, Fragment } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Attempt, Exam, Question, AttemptStatus } from '@/types';
+import { Attempt, Exam, Group, Question, AttemptStatus } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { toDate, toMillis } from '@/lib/time';
 import { StatusBadge } from '@/components/StatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { StatStrip } from '@/components/ui/StatStrip';
+import { Segmented } from '@/components/ui/Segmented';
+import { ResultBar } from '@/components/ui/ResultBar';
+import { btnQuiet, field, fieldLabel, surface } from '@/components/ui/styles';
+import { fetchAllGroups, fetchOwnedGroups } from '@/lib/groups';
+import { attemptGroupLabels, groupFilterOptions, matchesGroupFilter } from '@/lib/attemptGroups';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
 import { Database, AlertCircle, Clock, Download, BarChart2 } from 'lucide-react';
@@ -86,6 +93,7 @@ export function AttemptsContent() {
 
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
+  const [groupList, setGroupList] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -128,10 +136,14 @@ export function AttemptsContent() {
       }
 
       // Fetch Data
-      const [examsSnap, attemptsSnap] = await Promise.all([
+      // Group names are a nicety: if they cannot be loaded the page still shows every attempt.
+      const groupsPromise = (user.role === 'admin' ? fetchAllGroups() : fetchOwnedGroups(user.uid)).catch(() => [] as Group[]);
+      const [examsSnap, attemptsSnap, groupsData] = await Promise.all([
         getDocs(examsQ),
         getDocs(attemptsQ),
+        groupsPromise,
       ]);
+      setGroupList(groupsData);
 
       const examsData = examsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Exam));
       setExams(examsData);
@@ -158,18 +170,28 @@ export function AttemptsContent() {
     }
   };
 
-  const groups = useMemo(() => {
-    const groupSet = new Set<string>();
-    attempts.forEach(a => {
-      if (a.studentGroup) groupSet.add(a.studentGroup);
-    });
-    return Array.from(groupSet).sort();
-  }, [attempts]);
+  const nameById = useMemo(() => new Map(groupList.map(g => [g.id, g.name])), [groupList]);
+  const groupOptions = useMemo(() => groupFilterOptions(attempts, groupList), [attempts, groupList]);
+
+  // How many attempts each status would show with the other filters applied: "Flagged 2" tells the teacher where to look.
+  const statusCounts = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    const base = attempts.filter(a =>
+      (!selectedExam || a.examId === selectedExam) &&
+      matchesGroupFilter(a, selectedGroup) &&
+      (!q || (a.studentName || '').toLowerCase().includes(q) || (a.studentEmail || '').toLowerCase().includes(q)));
+    return {
+      all: base.length,
+      in_progress: base.filter(a => a.status === 'in_progress').length,
+      completed: base.filter(a => a.status === 'completed').length,
+      flagged: base.filter(a => a.status === 'flagged').length,
+    };
+  }, [attempts, selectedExam, selectedGroup, searchQuery]);
 
   const filteredAttempts = useMemo(() => {
     return attempts.filter(a => {
       if (selectedExam && a.examId !== selectedExam) return false;
-      if (selectedGroup && a.studentGroup !== selectedGroup) return false;
+      if (!matchesGroupFilter(a, selectedGroup)) return false;
       if (selectedStatus && a.status !== selectedStatus) return false;
       if (searchQuery) {
          const q = searchQuery.toLowerCase();
@@ -322,7 +344,7 @@ export function AttemptsContent() {
       return [
         a.studentName || 'Unknown',
         a.studentEmail || '',
-        a.studentGroup || '',
+        attemptGroupLabels(a, nameById).join(', '),
         a.examTitle || a.examId,
         score,
         total,
@@ -432,75 +454,97 @@ export function AttemptsContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-slate-800">Attempts Overview</h2>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <button onClick={exportCSV} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 min-h-[44px]">
-             <Download className="w-4 h-4" /> Export CSV
-          </button>
-          <button onClick={fetchData} className="flex-1 sm:flex-none px-4 py-2 text-sm text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 min-h-[44px]">
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Attempts"
+        description="Every attempt at your exams. The filters apply to the list, the numbers and the CSV export alike."
+        actions={
+          <>
+            <button onClick={exportCSV} className={`${btnQuiet} flex-1 sm:flex-none`}>
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+            <button onClick={fetchData} className={`${btnQuiet} flex-1 sm:flex-none`}>Refresh</button>
+          </>
+        }
+      />
 
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <StatStrip
+        stats={[
+          { label: 'Attempts', value: summaries.total },
+          { label: 'Completed', value: summaries.completed },
+          { label: 'Average score', value: `${summaries.avgScore}%` },
+          { label: 'Average time', value: `${Math.floor(summaries.avgTime / 60)}m ${summaries.avgTime % 60}s` },
+          { label: 'Pass rate', value: summaries.passRate !== null ? `${summaries.passRate}%` : '—', note: summaries.passRate === null ? 'No pass line set' : undefined },
+        ]}
+      />
+
+      <section aria-label="Filters" className={`${surface} p-4 space-y-4`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Segmented<AttemptStatus | ''>
+            label="Status"
+            value={selectedStatus}
+            onChange={setSelectedStatus}
+            options={[
+              { value: '', label: 'All', count: statusCounts.all },
+              { value: 'in_progress', label: 'In progress', count: statusCounts.in_progress },
+              { value: 'completed', label: 'Completed', count: statusCounts.completed },
+              { value: 'flagged', label: 'Flagged', count: statusCounts.flagged },
+            ]}
+          />
+          {selectedExam && (
+            <button
+              onClick={runQuestionAnalysis}
+              disabled={analyzing}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 min-h-[44px] disabled:opacity-50"
+            >
+              <BarChart2 className="w-4 h-4" />
+              {analyzing ? 'Analyzing...' : 'Find the hardest questions'}
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Exam</label>
-            <select value={selectedExam} onChange={e => setSelectedExam(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm min-h-[44px] bg-white">
-              <option value="">All Exams</option>
+            <label htmlFor="filter-exam" className={fieldLabel}>Exam</label>
+            <select id="filter-exam" value={selectedExam} onChange={e => setSelectedExam(e.target.value)} className={field}>
+              <option value="">All exams</option>
               {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Group</label>
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm min-h-[44px] bg-white">
-              <option value="">All Groups</option>
-              {groups.map(g => <option key={g} value={g}>{g}</option>)}
+            <label htmlFor="filter-group" className={fieldLabel}>Group</label>
+            <select id="filter-group" value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className={field}>
+              <option value="">All groups</option>
+              {groupOptions.groups.length > 0 && (
+                <optgroup label="Groups">
+                  {groupOptions.groups.map(g => <option key={g.value} value={g.value}>{g.label} ({g.count})</option>)}
+                </optgroup>
+              )}
+              {groupOptions.legacy.length > 0 && (
+                <optgroup label="Typed in the profile (older attempts)">
+                  {groupOptions.legacy.map(g => <option key={g.value} value={g.value}>{g.label} ({g.count})</option>)}
+                </optgroup>
+              )}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => setSelectedStatus('')} className={`px-3 py-1.5 rounded-full text-xs font-medium border ${selectedStatus === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'} min-h-[44px]`}>All</button>
-              <button onClick={() => setSelectedStatus('in_progress')} className={`px-3 py-1.5 rounded-full text-xs font-medium border ${selectedStatus === 'in_progress' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'} min-h-[44px]`}>In Progress</button>
-              <button onClick={() => setSelectedStatus('completed')} className={`px-3 py-1.5 rounded-full text-xs font-medium border ${selectedStatus === 'completed' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'} min-h-[44px]`}>Completed</button>
-              <button onClick={() => setSelectedStatus('flagged')} className={`px-3 py-1.5 rounded-full text-xs font-medium border ${selectedStatus === 'flagged' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'} min-h-[44px]`}>Flagged</button>
-            </div>
+            <label htmlFor="filter-search" className={fieldLabel}>Student</label>
+            <input id="filter-search" type="search" placeholder="Name or email" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className={field} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Search</label>
-            <input type="text" placeholder="Name or email..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm min-h-[44px]" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Sort By</label>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value as "newest" | "score" | "fastest")} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm min-h-[44px] bg-white">
-              <option value="newest">Newest First</option>
-              <option value="score">Score (High to Low)</option>
-              <option value="fastest">Fastest Time</option>
+            <label htmlFor="filter-sort" className={fieldLabel}>Order</label>
+            <select id="filter-sort" value={sortBy} onChange={e => setSortBy(e.target.value as "newest" | "score" | "fastest")} className={field}>
+              <option value="newest">Newest first</option>
+              <option value="score">Highest score first</option>
+              <option value="fastest">Fastest first</option>
             </select>
           </div>
         </div>
-
-        {selectedExam && (
-          <div className="pt-4 border-t border-slate-100">
-             <button
-                onClick={runQuestionAnalysis}
-                disabled={analyzing}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 min-h-[44px] disabled:opacity-50"
-             >
-                <BarChart2 className="w-4 h-4" />
-                {analyzing ? 'Analyzing...' : 'Analyze Questions (Hardest First)'}
-             </button>
-          </div>
-        )}
-      </div>
+      </section>
 
       {analysisResult && (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+        <div className={`${surface} p-4`}>
           <div className="flex justify-between items-center mb-4">
-             <h3 className="text-lg font-bold text-slate-800">Question Analysis</h3>
+             <h3 className="text-lg font-semibold text-ink">Hardest questions first</h3>
              <button onClick={() => setAnalysisResult(null)} className="text-sm text-slate-500 hover:text-slate-700">Close</button>
           </div>
 
@@ -529,30 +573,7 @@ export function AttemptsContent() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Total Attempts</p>
-          <p className="text-2xl font-bold text-slate-800">{summaries.total}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Completed</p>
-          <p className="text-2xl font-bold text-slate-800">{summaries.completed}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Avg Score</p>
-          <p className="text-2xl font-bold text-slate-800">{summaries.avgScore}%</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Avg Time</p>
-          <p className="text-2xl font-bold text-slate-800">{Math.floor(summaries.avgTime / 60)}m {summaries.avgTime % 60}s</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Pass Rate</p>
-          <p className="text-2xl font-bold text-slate-800">{summaries.passRate !== null ? `${summaries.passRate}%` : '—'}</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div className={`${surface} overflow-hidden`}>
         {filteredAttempts.length === 0 ? (
           <EmptyState
             icon={Database}
@@ -562,18 +583,18 @@ export function AttemptsContent() {
         ) : (
           <div className="overflow-x-auto">
             {/* Desktop Table */}
-            <table className="min-w-full divide-y divide-slate-200 hidden md:table">
-              <thead className="bg-slate-50">
+            <table className="min-w-full divide-y divide-slate-100 hidden md:table">
+              <thead className="bg-slate-50/70">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Student</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Exam</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Score</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Time Taken</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500">Student</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500">Exam</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500">Result</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500">Time</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500">Status</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
+              <tbody className="bg-white divide-y divide-slate-100">
                 {filteredAttempts.map(a => {
                   const startedDate = toDate(a.startedAt);
                   const isPassed = a.passingPercent !== undefined && a.passingPercent !== null && a.score !== undefined && a.totalQuestions
@@ -583,46 +604,57 @@ export function AttemptsContent() {
                   return (
                   <Fragment key={a.id}>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-slate-900">{a.studentName || 'Unknown'}</div>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <div className="text-sm font-medium text-ink">{a.studentName || 'Unknown'}</div>
                         <div className="text-sm text-slate-500">{a.studentEmail}</div>
-                        {a.studentGroup && <div className="text-xs text-slate-400 mt-1">Group: {a.studentGroup}</div>}
+                        {attemptGroupLabels(a, nameById).length > 0 && (
+                          <div className="text-xs text-slate-500 mt-0.5">{attemptGroupLabels(a, nameById).join(', ')}</div>
+                        )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-3">
                         <div className="text-sm text-slate-900 line-clamp-2 max-w-xs">{a.examTitle || a.examId}</div>
                         <div className="text-xs text-slate-500 mt-1">{startedDate ? format(startedDate, 'dd.MM HH:mm') : ''}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 py-3 whitespace-nowrap">
                         {a.score !== undefined && a.totalQuestions ? (
-                          <div className={`text-sm font-medium ${isPassed === true ? 'text-green-600' : isPassed === false ? 'text-red-600' : 'text-slate-900'}`}>
-                            {a.score}/{a.totalQuestions} <span className="text-slate-400 font-normal">({Math.round((a.score / a.totalQuestions) * 100)}%)</span>
+                          <div className="w-32 tnum">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className={`text-sm font-semibold ${isPassed === true ? 'text-pass' : isPassed === false ? 'text-short' : 'text-ink'}`}>
+                                {Math.round((a.score / a.totalQuestions) * 100)}%
+                              </span>
+                              <span className="text-xs text-slate-500">{a.score}/{a.totalQuestions}</span>
+                            </div>
+                            <div className="mt-1.5">
+                              <ResultBar percent={Math.round((a.score / a.totalQuestions) * 100)} passingPercent={a.passingPercent} />
+                            </div>
                           </div>
                         ) : (
                           <span className="text-sm text-slate-500">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                      <td className="px-3 py-3 whitespace-nowrap text-sm text-slate-500 tnum">
                         {formatDuration(a.startedAt, a.finishedAt)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 py-3 whitespace-nowrap">
                         <StatusBadge status={a.status} />
                         {(a.violationCount || 0) > 0 && (
-                          <div className="mt-1 flex items-center text-xs text-red-500" title={a.violationReason}>
+                          <div className="mt-1 flex items-center text-xs text-flag" title={a.violationReason}>
                             <AlertCircle className="w-3 h-3 mr-1" />
                             {a.violationCount} warnings
                           </div>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
-                        <button onClick={() => toggleDetails(a)} className="text-slate-600 hover:text-slate-900">
-                          {expandedId === a.id ? 'Hide' : 'View'} Details
+                      <td className="px-3 py-3 text-sm font-medium"><div className="flex flex-col items-start gap-1 whitespace-nowrap">
+                        <button onClick={() => toggleDetails(a)} className="text-slate-600 hover:text-slate-900 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 rounded">
+                          {expandedId === a.id ? 'Hide details' : 'Details'}
                         </button>
                         {a.status === 'flagged' && (
-                          <button onClick={() => handleResetAttempt(a.id)} className="text-blue-600 hover:text-blue-900 mr-4">Reset</button>
+                          <button onClick={() => handleResetAttempt(a.id)} className="text-blue-600 hover:text-blue-900 hover:underline">Reset</button>
                         )}
-                        <button onClick={() => handleAllowRetake(a.id)} className="text-slate-600 hover:text-slate-900">
+                        <button onClick={() => handleAllowRetake(a.id)} className="text-slate-600 hover:text-slate-900 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 rounded">
                            Allow retake
                         </button>
+                        </div>
                       </td>
                     </tr>
                     {expandedId === a.id && (
@@ -687,8 +719,11 @@ export function AttemptsContent() {
                     <div key={a.id} className="p-4 bg-white space-y-3">
                        <div className="flex justify-between items-start">
                           <div>
-                            <div className="font-medium text-slate-900">{a.studentName || 'Unknown'}</div>
+                            <div className="font-medium text-ink">{a.studentName || 'Unknown'}</div>
                             <div className="text-xs text-slate-500">{a.studentEmail}</div>
+                            {attemptGroupLabels(a, nameById).length > 0 && (
+                              <div className="text-xs text-slate-500 mt-0.5">{attemptGroupLabels(a, nameById).join(', ')}</div>
+                            )}
                           </div>
                           <StatusBadge status={a.status} />
                        </div>
@@ -698,14 +733,22 @@ export function AttemptsContent() {
                          <div className="text-xs text-slate-500 mt-0.5">{startedDate ? format(startedDate, 'dd.MM HH:mm') : ''}</div>
                        </div>
 
-                       <div className="flex justify-between items-center text-sm border-t border-slate-50 pt-2">
-                         <div>
+                       <div className="flex justify-between items-center gap-4 text-sm border-t border-slate-100 pt-2">
+                         <div className="flex-1 tnum">
                             {a.score !== undefined && a.totalQuestions ? (
-                              <span className={`font-medium ${isPassed === true ? 'text-green-600' : isPassed === false ? 'text-red-600' : 'text-slate-900'}`}>
-                                Score: {a.score}/{a.totalQuestions} <span className="text-slate-400 font-normal">({Math.round((a.score / a.totalQuestions) * 100)}%)</span>
-                              </span>
+                              <>
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className={`font-semibold ${isPassed === true ? 'text-pass' : isPassed === false ? 'text-short' : 'text-ink'}`}>
+                                    {Math.round((a.score / a.totalQuestions) * 100)}%
+                                  </span>
+                                  <span className="text-xs text-slate-500">{a.score}/{a.totalQuestions}</span>
+                                </div>
+                                <div className="mt-1.5 max-w-[200px]">
+                                  <ResultBar percent={Math.round((a.score / a.totalQuestions) * 100)} passingPercent={a.passingPercent} />
+                                </div>
+                              </>
                             ) : (
-                              <span className="text-slate-500">Score: —</span>
+                              <span className="text-slate-500">No result yet</span>
                             )}
                          </div>
                          <div className="flex items-center text-slate-500">

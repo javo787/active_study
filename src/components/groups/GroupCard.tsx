@@ -99,7 +99,7 @@ export function GroupCard({ group, onChange, onToggleArchive, onDelete }: GroupC
   const lightButton = 'inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300 min-h-[44px] text-sm disabled:opacity-50';
 
   return (
-    <li className={`bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-4 ${group.archived ? 'opacity-75' : ''}`}>
+    <li id={`group-${group.id}`} className={`bg-white p-4 rounded-xl border border-slate-200 space-y-4 scroll-mt-24 target:ring-2 target:ring-blue-400 ${group.archived ? 'opacity-75' : ''}`}>
       {editing ? (
         <form onSubmit={saveDetails} className="space-y-3">
           <div>

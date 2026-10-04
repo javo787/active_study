@@ -5,9 +5,14 @@ import { collection, getDocs, doc, updateDoc, Timestamp, deleteField } from 'fir
 import { db } from '@/lib/firebase';
 import { User, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
+import { UserGroups } from '@/components/groups/UserGroups';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Pill, PillTone } from '@/components/ui/Pill';
 
 // Telegram sign-ins have no e-mail and often no display name, so lean on what the person typed in onboarding.
 const personName = (u: User) => u.fullName || u.displayName || 'Unnamed';
+const ROLE_TONE: Record<string, PillTone> = { admin: 'info', teacher: 'good', student: 'neutral' };
+
 const personDetails = (u: User) =>
   [u.university, u.role === 'student' && u.course ? `Year ${u.course}` : u.department].filter(Boolean).join(' · ') ||
   u.email ||
@@ -65,15 +70,19 @@ export default function AdminUsersPage() {
   const requests = users.filter(u => u.teacherStatus === 'pending');
 
   if (loading) {
-    return <div>Loading users...</div>;
+    return (
+      <div className="space-y-3" aria-busy="true">
+        {[1, 2, 3, 4].map(i => <div key={i} className="h-16 bg-slate-100 rounded-xl animate-pulse" />)}
+      </div>
+    );
   }
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold text-slate-800 mb-6">User Management</h2>
+    <div className="space-y-6">
+      <PageHeader title="Users" description="Change roles, answer teacher requests and see which groups a person teaches or belongs to." />
 
       {requests.length > 0 && (
-        <section aria-labelledby="requests-title" className="mb-8 rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <section aria-labelledby="requests-title" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h3 id="requests-title" className="font-semibold text-amber-900 mb-3">
             Teacher requests ({requests.length})
           </h3>
@@ -108,19 +117,14 @@ export default function AdminUsersPage() {
       {/* Mobile view: Stacked Cards */}
       <div className="md:hidden space-y-4">
         {users.map(u => (
-          <div key={u.uid} className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+          <div key={u.uid} className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="flex justify-between items-start mb-3">
               <div>
-                <div className="text-sm font-medium text-slate-900">{personName(u)}</div>
+                <div className="text-sm font-medium text-ink">{personName(u)}</div>
                 <div className="text-sm text-slate-500">{personDetails(u)}</div>
+                <UserGroups user={u} />
               </div>
-              <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                u.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                u.role === 'teacher' ? 'bg-blue-100 text-blue-800' :
-                'bg-slate-100 text-slate-800'
-              }`}>
-                {u.role}
-              </span>
+              <Pill tone={ROLE_TONE[u.role] ?? 'neutral'}>{u.role}</Pill>
             </div>
             <select
               value={u.role}
@@ -137,30 +141,25 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Desktop view: Table */}
-      <div className="hidden md:block bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50">
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="min-w-full divide-y divide-slate-100">
+          <thead className="bg-slate-50/70">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Name / Email</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Current Role</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Action</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500">Person</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500">Role</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500">Change role</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-slate-200">
+          <tbody className="bg-white divide-y divide-slate-100">
             {users.map(u => (
               <tr key={u.uid}>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-slate-900">{personName(u)}</div>
+                <td className="px-6 py-4">
+                  <div className="text-sm font-medium text-ink">{personName(u)}</div>
                   <div className="text-sm text-slate-500">{personDetails(u)}</div>
+                  <UserGroups user={u} />
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    u.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                    u.role === 'teacher' ? 'bg-blue-100 text-blue-800' :
-                    'bg-slate-100 text-slate-800'
-                  }`}>
-                    {u.role}
-                  </span>
+                <td className="px-6 py-4 whitespace-nowrap align-top">
+                  <Pill tone={ROLE_TONE[u.role] ?? 'neutral'}>{u.role}</Pill>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                   <select

@@ -49,6 +49,12 @@ vi.mock('firebase/firestore', () => {
         .map(([path, data]) => ({ id: path.split('/').pop(), ref: ref(path), data: () => data }));
       return { docs };
     },
+    getCountFromServer: async (c: Ref) => {
+      if (deniedReads(c.path)) throw denied();
+      const depth = c.path.split('/').length + 1;
+      const count = Array.from(store.keys()).filter(path => path.startsWith(`${c.path}/`) && path.split('/').length === depth).length;
+      return { data: () => ({ count }) };
+    },
     setDoc: async (r: Ref, data: Data) => {
       if (deniedWrites(r.path)) throw denied();
       store.set(r.path, data);
@@ -81,6 +87,7 @@ vi.mock('firebase/firestore', () => {
 import {
   JoinGroupError,
   chunk,
+  countMembers,
   createGroup,
   deleteGroupCascade,
   fetchMembers,
@@ -96,6 +103,8 @@ import {
   restoreMember,
   rotateJoinCode,
   setGroupJoinOpen,
+  setJoinOpenForGroup,
+  transferGroupOwner,
   updateGroupDetails,
 } from './groups';
 
@@ -420,6 +429,50 @@ describe('teacher tools', () => {
     expect(await updateGroupDetails(GID, { name: '  Anatomy 2  ', description: ` ${'x'.repeat(300)} ` }))
       .toEqual({ name: 'Anatomy 2', description: 'x'.repeat(200) });
     await expect(updateGroupDetails(GID, { name: '  ', description: '' })).rejects.toThrow();
+  });
+});
+
+describe('admin tools', () => {
+  it('counts the students with a members record, and says null when the rules do not allow it', async () => {
+    seedCurrent();
+    store.set(`groups/${GID}/members/a`, { name: 'A' });
+    store.set(`groups/${GID}/members/b`, { name: 'B' });
+    store.set(`groups/${GID}/removed/c`, { name: 'C' });
+    expect(await countMembers(GID)).toBe(2);
+    deniedReads = () => true;
+    expect(await countMembers(GID)).toBeNull();
+  });
+
+  it('hands a group to another teacher; the code and the members stay', async () => {
+    seedCurrent({ ownerName: 'Old Owner' });
+    store.set(`groups/${GID}/members/a`, { name: 'A' });
+    await transferGroupOwner(GID, { uid: 't2', name: 'Dr. Karimova' });
+    expect(store.get(`groups/${GID}`)).toMatchObject({ ownerId: 't2', ownerName: 'Dr. Karimova', joinCode: CODE });
+    expect(store.has(`groups/${GID}/members/a`)).toBe(true);
+    expect(store.has(`joinCodes/${CODE}`)).toBe(true);
+  });
+
+  it('closes joining on an upgraded group directly', async () => {
+    seedCurrent();
+    const group = { id: GID, name: 'Anatomy', ownerId: 't1', joinCode: CODE, createdAt: new Date() } as Group;
+    expect(await setJoinOpenForGroup(group, false)).toMatchObject({ joinOpen: false });
+    await expect(joinGroupByCode(student(), CODE)).rejects.toMatchObject({ code: 'closed' });
+  });
+
+  it('closing a legacy group upgrades it first, keeping its code', async () => {
+    store.set('groups/ABCD2345', { name: 'Legacy', ownerId: 't1' });
+    const legacy = { id: 'ABCD2345', name: 'Legacy', ownerId: 't1', createdAt: new Date() } as Group;
+    const result = await setJoinOpenForGroup(legacy, false);
+    expect(result).toMatchObject({ joinCode: 'ABCD2345', joinOpen: false });
+    expect(store.get('joinCodes/ABCD2345')).toEqual({ groupId: 'ABCD2345', active: true });
+    await expect(joinGroupByCode(student(), 'ABCD2345')).rejects.toMatchObject({ code: 'closed' });
+  });
+
+  it('refuses to pretend when a legacy group cannot be upgraded (old rules)', async () => {
+    store.set('groups/ABCD2345', { name: 'Legacy', ownerId: 't1' });
+    deniedWrites = () => true;
+    const legacy = { id: 'ABCD2345', name: 'Legacy', ownerId: 't1', createdAt: new Date() } as Group;
+    await expect(setJoinOpenForGroup(legacy, false)).rejects.toThrow();
   });
 });
 

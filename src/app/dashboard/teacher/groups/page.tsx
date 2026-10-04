@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { Plus, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +21,7 @@ export default function TeacherGroups() {
   const [groupToDelete, setGroupToDelete] = useState<Group | null>(null);
   const [deletingExams, setDeletingExams] = useState<{ loading: boolean; error: boolean; unpublish: string[]; detach: string[] }>({ loading: false, error: false, unpublish: [], detach: [] });
   const [showArchived, setShowArchived] = useState(false);
+  const scrolledToHash = useRef(false);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -110,6 +111,20 @@ export default function TeacherGroups() {
       toast.error('Could not update group');
     }
   };
+
+  // A link from an exam card names one group: show the list it is in, then scroll to it.
+  useEffect(() => {
+    if (loading || scrolledToHash.current || groups.length === 0) return;
+    const id = window.location.hash.slice(1);
+    const target = groups.find(g => `group-${g.id}` === id);
+    if (!target) return;
+    if (!!target.archived !== showArchived) {
+      setShowArchived(!!target.archived);
+      return;
+    }
+    scrolledToHash.current = true;
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'center' }));
+  }, [loading, groups, showArchived]);
 
   const activeGroups = groups.filter(g => !g.archived);
   const archivedGroups = groups.filter(g => g.archived);

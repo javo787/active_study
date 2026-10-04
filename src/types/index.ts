@@ -18,14 +18,15 @@ export interface User {
   /** Teachers: department. */
   department?: string;
   teacherStatus?: TeacherStatus;
-  /** Join codes of the groups this user belongs to (see Group). */
+  /** Ids of the groups this user belongs to (see Group). */
   groupIds?: string[];
   expiresAt?: Date | Timestamp;
 }
 
 /**
- * A class group owned by a teacher. The document id IS the join code
- * (8 chars, unambiguous alphabet), so knowing the code is what lets a student in.
+ * A class group owned by a teacher. Current groups have an automatic id and a separate join code
+ * (joinCodes/{code} points back at the group). Legacy groups, created before that, use the 8-character
+ * code as their id and have no joinCode field until their owner opens the groups page.
  */
 export interface Group {
   id: string;

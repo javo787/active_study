@@ -1,4 +1,4 @@
-import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import type { DocumentReference } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Exam, Group, GroupMember, RemovedMember } from '@/types';
@@ -159,7 +159,16 @@ export async function fetchOwnedGroups(ownerId: string): Promise<Group[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Every group on the platform. The rules allow this for admins only. */
+export async function fetchAllGroups(): Promise<Group[]> {
+  const snap = await getDocs(collection(db, 'groups'));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() } as Group))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** Groups that no longer exist (deleted by the teacher) are silently dropped. */
+
 export async function fetchGroupsByIds(ids: string[]): Promise<{ groups: Group[]; missingIds: string[] }> {
   const results = await Promise.allSettled(ids.map(id => getDoc(doc(db, 'groups', id))));
   const groups: Group[] = [];
@@ -326,6 +335,31 @@ export async function updateGroupDetails(groupId: string, details: { name: strin
   if (!name) throw new Error('Group name is required');
   await updateDoc(doc(db, 'groups', groupId), { name, description, updatedAt: serverTimestamp() });
   return { name, description };
+}
+
+// ---- Admin: oversight of every group ------------------------------------------------------------------
+
+/** Number of students with a members record, or null when it cannot be read. Older students appear after they next open the app. */
+export async function countMembers(groupId: string): Promise<number | null> {
+  try {
+    return (await getCountFromServer(collection(db, 'groups', groupId, 'members'))).data().count;
+  } catch (error) {
+    if (isPermissionDenied(error)) return null;
+    throw error;
+  }
+}
+
+/** Gives the group to another teacher. Exams stay with their authors; the new owner gets the group, its students and its code. */
+export async function transferGroupOwner(groupId: string, owner: { uid: string; name: string }): Promise<void> {
+  await updateDoc(doc(db, 'groups', groupId), { ownerId: owner.uid, ownerName: owner.name, updatedAt: serverTimestamp() });
+}
+
+/** Opens or closes joining for any group, upgrading a legacy group first (it has no joinOpen switch before that). */
+export async function setJoinOpenForGroup(group: Group, joinOpen: boolean): Promise<Group> {
+  const current = group.joinCode ? group : await migrateLegacyGroup(group);
+  if (!current.joinCode) throw new Error('The group could not be upgraded yet');
+  await setGroupJoinOpen(group.id, joinOpen);
+  return { ...current, joinOpen };
 }
 
 export interface GroupStudent {
