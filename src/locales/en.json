@@ -1,0 +1,55 @@
+{
+  "translation": {
+    "auth": {
+      "title": "Active Study",
+      "subtitle": "Sign in to access your dashboard",
+      "continue_google": "Continue with Google",
+      "signing_in": "Signing in...",
+      "continue_telegram": "Continue with Telegram",
+      "starting": "Starting...",
+      "tg_instructions_1": "1. Open Telegram and press <b>Start</b>.",
+      "tg_instructions_2": "2. Tap <b>Confirm</b> in the bot.",
+      "tg_instructions_3": "3. Come back here — you will be signed in automatically.",
+      "open_telegram": "Open Telegram",
+      "waiting": "Waiting for confirmation...",
+      "cancel": "Cancel",
+      "footer": "Secure, reliable online examination platform.",
+      "error_expired": "The Telegram link expired. Please try again.",
+      "error_failed": "Telegram sign-in failed. Open Diagnostics below for details."
+    },
+    "nav": {
+      "admin_dashboard": "Admin Dashboard",
+      "teacher_tools": "Teacher Tools",
+      "profile": "Profile",
+      "teacher_dashboard": "Dashboard",
+      "my_exams": "My Exams",
+      "groups": "Groups",
+      "attempts": "Attempts",
+      "import": "Import",
+      "student_dashboard": "Student Dashboard",
+      "sign_out": "Sign Out",
+      "admin_overview": "Overview",
+      "user_management": "User Management",
+      "exam_overview": "Exam Overview",
+      "platform_settings": "Platform Settings",
+      "menu": "Menu",
+      "close": "Close",
+      "student_portal": "Student Portal",
+      "teacher_portal": "Teacher Portal",
+      "admin_portal": "Admin Portal",
+      "dashboard": "Dashboard"
+    },
+    "common": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "edit": "Edit",
+      "create": "Create",
+      "loading": "Loading...",
+      "success": "Success",
+      "error": "Error",
+      "confirm": "Confirm",
+      "back": "Back"
+    }
+  }
+}
