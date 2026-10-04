@@ -3,7 +3,7 @@ import { db } from '@/lib/firebase';
 import { Exam, Group } from '@/types';
 import { appUrl } from './appUrl';
 
-// No 0/O, 1/I/L: codes get read aloud and typed from a projector.
+// No 0/O, 1/I: codes get read aloud and typed from a projector. L stays in the alphabet (existing codes may contain it).
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars -> uniform with a byte % 32
 export const JOIN_CODE_LENGTH = 8;
 const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/;

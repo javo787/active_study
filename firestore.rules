@@ -20,13 +20,15 @@ service cloud.firestore {
 
     // A user may only append ONE group that exists (knowing the code is the invitation),
     // or remove groups. Nothing else can change groupIds.
+    // Note: list[0:0] is an evaluation error in the rules engine ("Index out of bound"), so the slice is
+    // guarded. Without the guard the FIRST group a student joins (empty or missing groupIds) was always refused.
     function groupsChangeAllowed() {
       let before = resource.data.get('groupIds', []);
       let after = request.resource.data.get('groupIds', []);
       return after.toSet().difference(before.toSet()).size() == 0
           || (after.size() == before.size() + 1
               && after.size() <= 30
-              && after[0:before.size()] == before
+              && (before.size() == 0 || after[0:before.size()] == before)
               && exists(/databases/$(database)/documents/groups/$(after[before.size()])));
     }
 

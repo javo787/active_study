@@ -40,3 +40,8 @@ patch_*.py
 patch_*.diff
 replace*.py
 *.orig
+
+# firebase emulators
+firestore-debug.log
+ui-debug.log
+firebase-debug.log
