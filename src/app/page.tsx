@@ -3,16 +3,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogIn, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { loadTelegramSession, clearTelegramSession, describeStartError, TelegramLoginError, TelegramLoginSession } from '@/lib/telegramAuth';
 import { describeError, tgLog, tgWatchCsp } from '@/lib/tgLog';
 import TelegramDiagnostics from '@/components/TelegramDiagnostics';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { useTranslation, Trans } from 'react-i18next';
 
 export default function LoginPage() {
   const { user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn } = useAuth();
   const router = useRouter();
+  const { t } = useTranslation();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [tgSession, setTgSession] = useState<TelegramLoginSession | null>(null);
@@ -31,12 +34,12 @@ export default function LoginPage() {
       if (err instanceof TelegramLoginError && err.code === 'cancelled') return;
       tgLog('error', 'flow:failed', describeError(err));
       if (err instanceof TelegramLoginError && err.code === 'expired') {
-        toast.error('The Telegram link expired. Please try again.');
+        toast.error(t('auth.error_expired', 'The Telegram link expired. Please try again.'));
       } else {
         toast.error(
           err instanceof TelegramLoginError && err.code === 'server'
             ? describeStartError(err)
-            : 'Telegram sign-in failed. Open Diagnostics below for details.'
+            : t('auth.error_failed', 'Telegram sign-in failed. Open Diagnostics below for details.')
         );
       }
       setTgSession(null);
@@ -106,19 +109,22 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans relative">
+      <div className="absolute top-4 right-4">
+        <LanguageSwitcher />
+      </div>
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
         <div className="p-8 text-center space-y-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 text-blue-600 mb-2">
-            <LogIn className="w-8 h-8" />
+          <div className="flex justify-center mb-6">
+            <img src="/logo-large.png" alt="Duxtur Edu" className="w-32 h-auto" />
           </div>
 
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              Active Study
+              {t('auth.title', 'Duxtur Edu')}
             </h1>
             <p className="text-slate-500">
-              Sign in to access your dashboard
+              {t('auth.subtitle', 'Sign in to access your dashboard')}
             </p>
           </div>
 
@@ -151,15 +157,15 @@ export default function LoginPage() {
               />
             </svg>
             )}
-            {isLoggingIn ? 'Signing in...' : 'Continue with Google'}
+            {isLoggingIn ? t('auth.signing_in', 'Signing in...') : t('auth.continue_google', 'Continue with Google')}
           </button>
 
           {tgSession ? (
             <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-left space-y-3">
               <p className="text-sm text-slate-700">
-                1. Open Telegram and press <b>Start</b>.<br />
-                2. Tap <b>Confirm</b> in the bot.<br />
-                3. Come back here — you will be signed in automatically.
+                <Trans i18nKey="auth.tg_instructions_1">1. Open Telegram and press <b>Start</b>.</Trans><br />
+                <Trans i18nKey="auth.tg_instructions_2">2. Tap <b>Confirm</b> in the bot.</Trans><br />
+                <Trans i18nKey="auth.tg_instructions_3">3. Come back here — you will be signed in automatically.</Trans>
               </p>
               <a
                 href={tgSession.botUrl}
@@ -168,15 +174,15 @@ export default function LoginPage() {
                 className="w-full min-h-[48px] flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white font-medium rounded-lg text-base px-5 py-3 transition-colors"
               >
                 <Send className="w-5 h-5" />
-                Open Telegram
+                {t('auth.open_telegram', 'Open Telegram')}
               </a>
               <div className="flex items-center justify-between text-sm text-slate-500">
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin"></span>
-                  Waiting for confirmation…
+                  {t('auth.waiting', 'Waiting for confirmation...')}
                 </span>
                 <button onClick={cancelTelegramLogin} className="underline hover:text-slate-700">
-                  Cancel
+                  {t('auth.cancel', 'Cancel')}
                 </button>
               </div>
             </div>
@@ -187,7 +193,7 @@ export default function LoginPage() {
               className="w-full min-h-[48px] flex items-center justify-center gap-3 bg-sky-500 hover:bg-sky-600 focus:ring-4 focus:ring-sky-100 text-white font-medium rounded-lg text-base px-5 py-3.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="w-5 h-5" />
-              {tgStarting ? 'Starting…' : 'Continue with Telegram'}
+              {tgStarting ? t('auth.starting', 'Starting...') : t('auth.continue_telegram', 'Continue with Telegram')}
             </button>
           )}
           <TelegramDiagnostics />
@@ -195,7 +201,7 @@ export default function LoginPage() {
 
         <div className="bg-slate-50 py-4 px-8 border-t border-slate-100 text-center">
           <p className="text-sm text-slate-500">
-            Secure, reliable online examination platform.
+            {t('auth.footer', 'Secure, reliable online examination platform.')}
           </p>
         </div>
       </div>

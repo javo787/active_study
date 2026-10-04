@@ -7,6 +7,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { NAV_ITEMS, ADMIN_LINKS, getPageTitle, isNavActive } from '@/lib/nav';
 import ProfileSetup from '@/components/ProfileSetup';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { useTranslation } from 'react-i18next';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, loading, signOut, refreshUser } = useAuth();
@@ -16,6 +18,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const { t } = useTranslation();
   const burgerRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -120,7 +123,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <button
               ref={burgerRef}
               onClick={() => setDrawerOpen(true)}
-              aria-label="Open menu"
+              aria-label={t('nav.menu', 'Menu')}
               aria-expanded={drawerOpen}
               aria-controls="mobile-drawer"
               className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -128,11 +131,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <Menu className="w-6 h-6" />
             </button>
             <h2 className="text-lg font-semibold text-slate-800 truncate">
-               {getPageTitle(pathname)}
+               {getPageTitle(pathname, t)}
             </h2>
           </div>
-          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm shrink-0">
-             {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
+          <div className="flex items-center gap-3 shrink-0">
+            <LanguageSwitcher />
+            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm shrink-0">
+               {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
+            </div>
           </div>
         </div>
       </header>
@@ -155,14 +161,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
            className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-slate-900 text-slate-300 flex flex-col transform transition-transform duration-200 ease-in-out motion-reduce:transition-none outline-none ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
          >
            <div className="p-4 border-b border-slate-800 flex items-center justify-between min-h-[56px] pt-safe">
-             <div>
-               <h1 className="text-xl font-bold text-white tracking-tight">Active Study</h1>
-               <p className="text-sm text-slate-500 mt-1 capitalize">{user.role} Portal</p>
+             <div className="flex items-center gap-3">
+               <img src="/logo.png" alt="Logo" className="w-8 h-8 bg-white rounded p-0.5" />
+               <div>
+                 <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
+                 <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+               </div>
              </div>
              <button
                onClick={() => setDrawerOpen(false)}
                className="p-2 -mr-2 text-slate-400 hover:bg-slate-800 hover:text-white rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
-               aria-label="Close menu"
+               aria-label={t('nav.close', 'Close')}
              >
                <X className="w-6 h-6" />
              </button>
@@ -180,9 +189,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                     : 'hover:bg-slate-800 hover:text-white transition-colors'
                 }`}
               >
-                {item.label}
+                {t(item.i18nKey as string, item.i18nKey as string)}
               </Link>
-              {item.label === 'Admin Dashboard' && user.role === 'admin' && (
+              {item.href === '/dashboard/admin' && user.role === 'admin' && (
                 <div className="mt-2 ml-4 pl-4 border-l border-slate-700 space-y-1">
                   {ADMIN_LINKS.map(adminLink => {
                     const Icon = adminLink.icon;
@@ -198,7 +207,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                         }`}
                       >
                         <Icon className="w-4 h-4 shrink-0" />
-                        {adminLink.label}
+                        {t(adminLink.i18nKey, adminLink.i18nKey)}
                       </Link>
                     );
                   })}
@@ -214,7 +223,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <p className="text-xs text-slate-500 truncate">{user.email}</p>
               </div>
             <button onClick={signOut} className="w-full text-left px-4 py-2 min-h-[44px] rounded-md text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors text-sm font-medium">
-              Sign Out
+              {t('nav.sign_out', 'Sign Out')}
             </button>
           </div>
          </div>
@@ -222,9 +231,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-slate-900 text-slate-300 flex-col shrink-0">
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-xl font-bold text-white tracking-tight">Active Study</h1>
-          <p className="text-sm text-slate-500 mt-1 capitalize">{user.role} Portal</p>
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+          <img src="/logo.png" alt="Logo" className="w-10 h-10 bg-white rounded p-1" />
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
+            <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+          </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
           {navItems.map((item) => (
@@ -237,7 +249,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   : 'hover:bg-slate-800 hover:text-white transition-colors'
               }`}
             >
-              {item.label}
+              {t(item.i18nKey as string, item.i18nKey as string)}
             </Link>
           ))}
         </nav>
@@ -247,7 +259,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
             </div>
           <button onClick={signOut} className="w-full text-left px-4 py-2 rounded-md text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors text-sm font-medium">
-            Sign Out
+            {t('nav.sign_out', 'Sign Out')}
           </button>
         </div>
       </aside>
@@ -256,8 +268,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white shadow-sm px-6 py-4 min-h-[60px] border-b border-slate-200 sticky top-0 z-10 hidden md:flex items-center justify-between">
              <h2 className="text-lg font-semibold text-slate-800">
-                {getPageTitle(pathname)}
+                {getPageTitle(pathname, t)}
              </h2>
+             <div className="flex items-center">
+                <LanguageSwitcher />
+             </div>
         </header>
         <div className="flex-1 p-4 md:p-6 overflow-y-auto">
           {!needsProfileSetup && user.role === 'student' && user.teacherStatus && (

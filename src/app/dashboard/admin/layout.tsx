@@ -4,9 +4,11 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ADMIN_LINKS } from '@/lib/nav';
+import { useTranslation } from 'react-i18next';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { t } = useTranslation();
 
   return (
     <div className="flex md:h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -30,7 +32,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 }`}
               >
                 <Icon className={`w-4 h-4 ${isActive ? 'text-blue-700' : 'text-slate-400'}`} />
-                {link.label}
+                {t(link.i18nKey, link.i18nKey)}
               </Link>
             );
           })}

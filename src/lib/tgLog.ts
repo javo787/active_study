@@ -141,7 +141,7 @@ export function tgSubscribe(fn: () => void): () => void {
 export function tgFormatLog(): string {
   load();
   const header = [
-    `Active Study / Telegram login diagnostics`,
+    `Duxtur Edu / Telegram login diagnostics`,
     `time: ${new Date().toISOString()}`,
     `page: ${typeof location !== 'undefined' ? location.href : ''}`,
     `ua: ${typeof navigator !== 'undefined' ? navigator.userAgent : ''}`,

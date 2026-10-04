@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import AppToaster from "@/components/AppToaster";
+import I18nProvider from "@/components/I18nProvider";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -16,7 +17,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Active Study",
+  title: "Duxtur Edu",
   description: "Online Examination Platform",
 };
 
@@ -37,10 +38,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>
-            <AppToaster />
-            {children}
-        </AuthProvider>
+        <I18nProvider>
+          <AuthProvider>
+              <AppToaster />
+              {children}
+          </AuthProvider>
+        </I18nProvider>
       </body>
     </html>
   );
