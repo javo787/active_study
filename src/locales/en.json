@@ -43,7 +43,8 @@
       "student_portal": "Student Portal",
       "teacher_portal": "Teacher Portal",
       "admin_portal": "Admin Portal",
-      "dashboard": "Dashboard"
+      "dashboard": "Dashboard",
+      "articles": "Articles"
     },
     "common": {
       "save": "Save",
@@ -100,6 +101,40 @@
         "cannot_unlink": "This Edu profile can only be reached through duxtur.org, so it cannot be unlinked."
       },
       "cannot_unlink": "This Edu profile was created from your duxtur.org account, so duxtur.org is its only way to sign in and it cannot be unlinked."
+    },
+    "articles": {
+      "intro": "Articles for patients are published on duxtur.org under your name as a doctor. The portal team reviews every article.",
+      "checking": "Checking your duxtur.org account…",
+      "off_portal_title": "Open Edu on duxtur.org",
+      "off_portal_body": "Articles are tied to your sign-in on duxtur.org. That sign-in is not available on this address.",
+      "off_portal_action": "Open on duxtur.org",
+      "sign_in_title": "Sign in on duxtur.org",
+      "sign_in_body": "Doctors with a verified profile can write articles. Sign in to your doctor account on duxtur.org, then come back to this page.",
+      "sign_in_action": "Sign in on duxtur.org",
+      "no_profile_title": "You need a doctor profile",
+      "no_profile_body": "A teacher at a medical university is a doctor, so articles are published as a doctor. Register once on duxtur.org as a doctor: the portal team verifies your diploma, and then you can write.",
+      "no_profile_action": "Register as a doctor",
+      "pending_title": "Your profile is under review",
+      "pending_body": "The portal team is checking your diploma. When your profile is approved, the article tools appear here.",
+      "rejected_title": "Your profile was not approved",
+      "rejected_body": "You cannot write articles until the profile is approved. If this is a mistake, contact the Duxtur team.",
+      "signed_in_as": "Articles are published as: {{name}}",
+      "write": "Write an article",
+      "my_articles": "My articles",
+      "list_error": "Could not load your articles. Check your connection.",
+      "retry": "Try again",
+      "empty_title": "No articles yet",
+      "empty_body": "Your first article appears here as soon as you save it. Readers see it after the portal team has reviewed it.",
+      "published": "Published",
+      "in_review": "In review",
+      "views": "Views: {{n}}",
+      "untitled": "Untitled",
+      "open": "Open",
+      "open_label": "Open the article “{{title}}”",
+      "edit": "Edit",
+      "edit_label": "Edit the article “{{title}}”",
+      "link_hint": "This Edu account is not linked to your duxtur.org account yet. Link them, and your groups and results are available when you sign in from the portal.",
+      "link_action": "Link in profile"
     }
   }
 }

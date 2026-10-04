@@ -8,9 +8,22 @@ import { DUXTUR_HOSTS, resolveAuthBase } from '@/lib/telegramAuth';
 /** Edu uid that the portal generates for a portal account that never had an Edu account: dx_<portal user id>. */
 export const GENERATED_UID_PREFIX = 'dx_';
 
+/** Status of a person's doctor profile on duxtur.org. Articles are written by approved doctors only. */
+export type DoctorStatus = 'pending' | 'approved' | 'rejected';
+
 export type PortalSession =
   | { signedIn: false }
-  | { signedIn: true; name: string; email: string; image: string; eduUid: string | null };
+  | {
+      signedIn: true;
+      name: string;
+      email: string;
+      image: string;
+      eduUid: string | null;
+      /** Portal role of the account ("patient" when the portal says nothing). */
+      role: string;
+      /** The doctor profile of this account, or null when there is none. */
+      doctor: { status: DoctorStatus } | null;
+    };
 
 /**
  * How the portal account of this browser relates to the Edu account that is signed in right now:
@@ -105,6 +118,18 @@ async function call(deps: PortalDeps, path: string, init: RequestInit): Promise<
 }
 
 /**
+ * A status this app does not know (the portal added one) counts as "pending": the safe reading, because it
+ * never opens the article tools to someone who may not be approved. An older portal that sends no `doctor` at
+ * all gives null, which the Articles page reads as "no doctor profile".
+ */
+function parseDoctor(value: unknown): { status: DoctorStatus } | null {
+  if (!value || typeof value !== 'object') return null;
+  const status = (value as { status?: unknown }).status;
+  if (status === 'approved' || status === 'rejected') return { status };
+  return typeof status === 'string' && status ? { status: 'pending' } : null;
+}
+
+/**
  * Who is signed in to duxtur.org in this browser. Never throws: anything that goes wrong (not on duxtur.org,
  * offline, portal down) means "no portal session", and the page simply does not offer the portal.
  */
@@ -120,6 +145,8 @@ export async function fetchPortalSession(deps?: PortalDeps): Promise<PortalSessi
       email: typeof body.email === 'string' ? body.email : '',
       image: typeof body.image === 'string' ? body.image : '',
       eduUid: typeof body.eduUid === 'string' && body.eduUid ? body.eduUid : null,
+      role: typeof body.role === 'string' && body.role ? body.role : 'patient',
+      doctor: parseDoctor(body.doctor),
     };
   } catch {
     return { signedIn: false };
@@ -157,4 +184,108 @@ export function signInMethod(uid: string, providerIds: string[], claimProvider?:
   if (uid.startsWith('tg_') || claimProvider === 'telegram') return 'telegram';
   if (providerIds.includes('google.com')) return 'google';
   return 'unknown';
+}
+
+/** What the Articles page can offer this person. */
+export type ArticleAccess = 'not_signed_in' | 'no_profile' | 'pending' | 'rejected' | 'approved';
+
+export function articleAccess(portal: PortalSession): ArticleAccess {
+  if (!portal.signedIn) return 'not_signed_in';
+  if (!portal.doctor) return 'no_profile';
+  return portal.doctor.status;
+}
+
+/** Portal locales are ru/uz/tg/kk/ky; Edu has ru/en/tj. Tajik maps to tg, everything else to the portal default. */
+export function portalLocale(lang: string | undefined): 'ru' | 'tg' {
+  return lang?.toLowerCase().startsWith('tj') || lang?.toLowerCase().startsWith('tg') ? 'tg' : 'ru';
+}
+
+/** Path of a duxtur.org page in the person's language: portalPath('tj', '/admin?tab=write') -> /tg/admin?tab=write. */
+export function portalPath(lang: string | undefined, path: string): string {
+  return `/${portalLocale(lang)}${path}`;
+}
+
+/** An article of the signed-in doctor, as /api/doctor/articles lists it. */
+export interface DoctorArticle {
+  slug: string;
+  title: string;
+  published: boolean;
+  views: number;
+  createdAt: string | null;
+}
+
+type RawTitle = Record<string, unknown> | string | undefined | null;
+
+function articleTitle(raw: RawTitle, lang: string | undefined): string {
+  if (typeof raw === 'string') return raw;
+  if (!raw || typeof raw !== 'object') return '';
+  const order = portalLocale(lang) === 'tg' ? ['tg', 'ru', 'uz', 'kk', 'ky'] : ['ru', 'tg', 'uz', 'kk', 'ky'];
+  for (const key of order) {
+    const value = raw[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return '';
+}
+
+/** Pure part of fetchDoctorArticles, so the odd shapes of old data are tested without a network. */
+export function parseDoctorArticles(body: unknown, lang: string | undefined): DoctorArticle[] {
+  if (!Array.isArray(body)) return [];
+  const result: DoctorArticle[] = [];
+  for (const item of body) {
+    if (!item || typeof item !== 'object') continue;
+    const a = item as Record<string, unknown>;
+    if (typeof a.slug !== 'string' || !a.slug) continue;
+    result.push({
+      slug: a.slug,
+      title: articleTitle(a.title as RawTitle, lang),
+      published: a.isVerified === true,
+      views: typeof a.views === 'number' && Number.isFinite(a.views) ? a.views : 0,
+      createdAt: typeof a.createdAt === 'string' ? a.createdAt : null,
+    });
+  }
+  return result;
+}
+
+/**
+ * The articles of the approved doctor behind the portal session. This endpoint answers with a bare array (or
+ * 401/403/404 with another body), so it does not go through call(): any non-array answer is a failure.
+ */
+export async function fetchDoctorArticles(lang: string | undefined, deps?: PortalDeps): Promise<DoctorArticle[]> {
+  const d = deps ?? defaultDeps();
+  let res: Response;
+  try {
+    res = await d.fetch(`${d.base}/api/doctor/articles`, { credentials: 'same-origin', signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch {
+    throw new PortalAccountError('network', 'Could not reach duxtur.org.');
+  }
+  if (res.status === 401) throw new PortalAccountError('not_signed_in', 'Not signed in on duxtur.org.');
+  if (!res.ok) throw new PortalAccountError('server', `duxtur.org answered ${res.status}.`);
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new PortalAccountError('bad_response', 'duxtur.org sent an unexpected answer.');
+  }
+  if (!Array.isArray(body)) throw new PortalAccountError('bad_response', 'duxtur.org sent an unexpected answer.');
+  return parseDoctorArticles(body, lang);
+}
+
+const TJ_MONTHS = ['янв.', 'фев.', 'март', 'апр.', 'май', 'июн', 'июл', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.'];
+
+/**
+ * "14 сен. 2026". Russian and English come from Intl; Tajik is spelled out here because browsers ship no Tajik
+ * date data and would silently answer in English.
+ */
+export function formatArticleDate(iso: string | null, lang: string | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  if (portalLocale(lang) === 'tg') return `${date.getDate()} ${TJ_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+  const locale = lang?.toLowerCase().startsWith('en') ? 'en' : 'ru';
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+}
+
+/** 1284 -> "1 284" (no-break space), the same in every language of the app. */
+export function formatCount(value: number): string {
+  return String(Math.max(0, Math.trunc(value))).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
 }
