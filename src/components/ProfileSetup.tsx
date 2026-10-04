@@ -27,7 +27,7 @@ export default function ProfileSetup() {
       <div className="w-full max-w-md bg-white rounded-lg shadow-sm border border-slate-200 p-6 sm:p-8">
         {kind === null ? (
           <>
-            <h2 className="text-2xl font-bold text-slate-800 mb-1 text-center">Welcome to Active Study</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-1 text-center">Welcome to Duxtur Edu</h2>
             <p className="text-slate-500 text-sm mb-6 text-center">Who are you?</p>
             <div className="space-y-3">
               {CHOICES.map(({ kind: k, title, text, Icon }) => (

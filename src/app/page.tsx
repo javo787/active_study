@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogIn, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { loadTelegramSession, clearTelegramSession, describeStartError, TelegramLoginError, TelegramLoginSession } from '@/lib/telegramAuth';
 import { describeError, tgLog, tgWatchCsp } from '@/lib/tgLog';
@@ -115,13 +115,13 @@ export default function LoginPage() {
       </div>
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
         <div className="p-8 text-center space-y-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 text-blue-600 mb-2">
-            <LogIn className="w-8 h-8" />
+          <div className="flex justify-center mb-6">
+            <img src="/logo-large.png" alt="Duxtur Edu" className="w-32 h-auto" />
           </div>
 
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              {t('auth.title', 'Active Study')}
+              {t('auth.title', 'Duxtur Edu')}
             </h1>
             <p className="text-slate-500">
               {t('auth.subtitle', 'Sign in to access your dashboard')}

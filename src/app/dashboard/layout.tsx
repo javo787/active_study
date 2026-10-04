@@ -161,9 +161,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
            className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-slate-900 text-slate-300 flex flex-col transform transition-transform duration-200 ease-in-out motion-reduce:transition-none outline-none ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
          >
            <div className="p-4 border-b border-slate-800 flex items-center justify-between min-h-[56px] pt-safe">
-             <div>
-               <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Active Study')}</h1>
-               <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+             <div className="flex items-center gap-3">
+               <img src="/logo.png" alt="Logo" className="w-8 h-8 bg-white rounded p-0.5" />
+               <div>
+                 <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
+                 <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+               </div>
              </div>
              <button
                onClick={() => setDrawerOpen(false)}
@@ -228,9 +231,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-slate-900 text-slate-300 flex-col shrink-0">
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Active Study')}</h1>
-          <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+          <img src="/logo.png" alt="Logo" className="w-10 h-10 bg-white rounded p-1" />
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
+            <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+          </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
           {navItems.map((item) => (
