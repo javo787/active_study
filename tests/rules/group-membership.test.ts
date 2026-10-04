@@ -81,8 +81,9 @@ describe('current groups: joining with a code', () => {
     await assertFails(join(as('student2'), 'student2', GID, CODE_D, { role: 'owner' }));
     await assertFails(join(as('student2'), 'student2', GID, CODE_D, { joinedAt: new Date('2020-01-01') }));
 
-    const batch = writeBatch(as('student2'));
-    batch.set(doc(as('student2'), `groups/${GID}/members/student1`), { name: 'Student', code: CODE_D, joinedAt: serverTimestamp() });
+    const db = as('student2');
+    const batch = writeBatch(db);
+    batch.set(doc(db, `groups/${GID}/members/student1`), { name: 'Student', code: CODE_D, joinedAt: serverTimestamp() });
     await assertFails(batch.commit());
   });
 
@@ -95,10 +96,11 @@ describe('current groups: joining with a code', () => {
 
   it('only one group can be added per write', async () => {
     await seed(getEnv(), { ...modern, ...currentGroup('grpPhysio000002', CODE_E, 'teacher2') });
-    const batch = writeBatch(as('student2'));
-    batch.set(doc(as('student2'), `groups/${GID}/members/student2`), { name: 'S', code: CODE_D, joinedAt: serverTimestamp() });
-    batch.set(doc(as('student2'), 'groups/grpPhysio000002/members/student2'), { name: 'S', code: CODE_E, joinedAt: serverTimestamp() });
-    batch.update(doc(as('student2'), 'users/student2'), { groupIds: arrayUnion(GID, 'grpPhysio000002') });
+    const db = as('student2');
+    const batch = writeBatch(db);
+    batch.set(doc(db, `groups/${GID}/members/student2`), { name: 'S', code: CODE_D, joinedAt: serverTimestamp() });
+    batch.set(doc(db, 'groups/grpPhysio000002/members/student2'), { name: 'S', code: CODE_E, joinedAt: serverTimestamp() });
+    batch.update(doc(db, 'users/student2'), { groupIds: arrayUnion(GID, 'grpPhysio000002') });
     await assertFails(batch.commit());
   });
 });
