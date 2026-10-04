@@ -42,6 +42,21 @@ export interface Group {
   updatedAt?: Date | Timestamp;
 }
 
+/** groups/{groupId}/members/{uid} */
+export interface GroupMember {
+  uid: string;
+  name: string;
+  code?: string;
+  joinedAt?: Date | Timestamp;
+}
+
+/** groups/{groupId}/removed/{uid}: blocks coming back until the owner deletes it. */
+export interface RemovedMember {
+  uid: string;
+  name: string;
+  at?: Date | Timestamp;
+}
+
 export interface Question {
   id: string;
   text: string;

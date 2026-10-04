@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { Archive, Copy, Link2, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Group } from '@/types';
-import { createGroup, deleteGroupCascade, fetchGroupExams, fetchOwnedGroups, formatJoinCode, groupCode, inviteLink, migrateLegacyGroup, planGroupDeletion, setGroupArchived } from '@/lib/groups';
+import { createGroup, deleteGroupCascade, fetchGroupExams, fetchOwnedGroups, migrateLegacyGroup, planGroupDeletion, setGroupArchived } from '@/lib/groups';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
+import { GroupCard } from '@/components/groups/GroupCard';
 
 export default function TeacherGroups() {
   const { user } = useAuth();
@@ -62,15 +63,6 @@ export default function TeacherGroups() {
       toast.error('Failed to create group');
     } finally {
       setCreating(false);
-    }
-  };
-
-  const copy = async (text: string, okMessage: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(okMessage);
-    } catch {
-      toast.error('Could not copy. Select the text and copy it manually.');
     }
   };
 
@@ -182,50 +174,13 @@ export default function TeacherGroups() {
       ) : (
         <ul className="space-y-3">
           {displayedGroups.map(group => (
-            <li key={group.id} className={`bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3 ${group.archived ? 'opacity-75' : ''}`}>
-              <div className="flex items-start justify-between gap-3">
-                <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                  {group.name}
-                  {group.archived && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">Archived</span>}
-                </h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => toggleArchive(group)}
-                    aria-label={`${group.archived ? 'Restore' : 'Archive'} ${group.name}`}
-                    className="text-slate-400 hover:text-slate-600 p-2 -m-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                  >
-                    {group.archived ? <RefreshCw className="w-5 h-5" /> : <Archive className="w-5 h-5" />}
-                  </button>
-                  <button
-                    onClick={() => requestDelete(group)}
-                    aria-label={`Delete ${group.name}`}
-                    className="text-slate-400 hover:text-red-600 p-2 -m-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <span className="font-mono text-2xl tracking-widest text-slate-900 bg-slate-100 rounded-md px-3 py-1 self-start">
-                  {formatJoinCode(groupCode(group))}
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => copy(groupCode(group), 'Code copied')}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300 min-h-[44px] text-sm"
-                  >
-                    <Copy className="w-4 h-4" /> Copy code
-                  </button>
-                  <button
-                    onClick={() => copy(inviteLink(groupCode(group)), 'Invite link copied')}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300 min-h-[44px] text-sm"
-                  >
-                    <Link2 className="w-4 h-4" /> Copy invite link
-                  </button>
-                </div>
-              </div>
-            </li>
+            <GroupCard
+              key={group.id}
+              group={group}
+              onChange={updated => setGroups(prev => prev.map(g => g.id === updated.id ? updated : g))}
+              onToggleArchive={toggleArchive}
+              onDelete={requestDelete}
+            />
           ))}
         </ul>
       )}
