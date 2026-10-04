@@ -3,11 +3,12 @@ export interface NavItem {
   label: string;
 }
 
-import { BarChart, Users, BookOpen, Settings } from 'lucide-react';
+import { BarChart, Users, BookOpen, Settings, Layers } from 'lucide-react';
 
 export const ADMIN_LINKS = [
   { href: '/dashboard/admin', i18nKey: 'nav.admin_overview', icon: BarChart },
   { href: '/dashboard/admin/users', i18nKey: 'nav.user_management', icon: Users },
+  { href: '/dashboard/admin/groups', i18nKey: 'nav.admin_groups', icon: Layers },
   { href: '/dashboard/admin/exams', i18nKey: 'nav.exam_overview', icon: BookOpen },
   { href: '/dashboard/admin/settings', i18nKey: 'nav.platform_settings', icon: Settings },
 ];
@@ -53,6 +54,7 @@ const TITLE_MAP: Record<string, string> = {
   '/dashboard/teacher/importer': 'nav.import',
   '/dashboard/admin': 'nav.admin_overview',
   '/dashboard/admin/users': 'nav.user_management',
+  '/dashboard/admin/groups': 'nav.admin_groups',
   '/dashboard/admin/exams': 'nav.exam_overview',
   '/dashboard/admin/settings': 'nav.platform_settings',
   '/dashboard/profile': 'nav.profile'

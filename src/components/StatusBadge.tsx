@@ -1,4 +1,5 @@
 import React from 'react';
+import { Pill, PillTone } from '@/components/ui/Pill';
 
 export type AttemptStatus = 'in_progress' | 'completed' | 'flagged';
 
@@ -6,28 +7,13 @@ interface StatusBadgeProps {
   status: AttemptStatus;
 }
 
+const STATUS: Record<AttemptStatus, { tone: PillTone; label: string }> = {
+  completed: { tone: 'good', label: 'Completed' },
+  flagged: { tone: 'flag', label: 'Flagged' },
+  in_progress: { tone: 'warn', label: 'In progress' },
+};
+
 export function StatusBadge({ status }: StatusBadgeProps) {
-  let bgColor = 'bg-slate-100';
-  let textColor = 'text-slate-800';
-  let label = status as string;
-
-  if (status === 'completed') {
-    bgColor = 'bg-green-100';
-    textColor = 'text-green-800';
-    label = 'Completed';
-  } else if (status === 'flagged') {
-    bgColor = 'bg-red-100';
-    textColor = 'text-red-800';
-    label = 'Flagged';
-  } else if (status === 'in_progress') {
-    bgColor = 'bg-amber-100';
-    textColor = 'text-amber-800';
-    label = 'In Progress';
-  }
-
-  return (
-    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${bgColor} ${textColor}`}>
-      {label}
-    </span>
-  );
+  const { tone, label } = STATUS[status] ?? { tone: 'neutral' as PillTone, label: String(status) };
+  return <Pill tone={tone} dot>{label}</Pill>;
 }

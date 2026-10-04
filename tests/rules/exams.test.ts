@@ -1,9 +1,9 @@
 import { describe, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { arrayRemove, collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { CODE_A, baseCast, examDoc, seed, useRulesEnv } from './helpers';
+import { CODE_A, baseCast, examDoc, seed, rulesEnv } from './helpers';
 
-const getEnv = useRulesEnv();
+const getEnv = rulesEnv();
 
 const cast = {
   ...baseCast,

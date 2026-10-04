@@ -1,6 +1,7 @@
-import { arrayRemove, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import type { DocumentReference } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Exam, Group } from '@/types';
+import { Exam, Group, GroupMember, RemovedMember } from '@/types';
 import { appUrl } from './appUrl';
 
 // No 0/O, 1/I: codes get read aloud and typed from a projector. L stays in the alphabet (existing codes may contain it).
@@ -28,33 +29,127 @@ export function formatJoinCode(code: string): string {
   return code.length === JOIN_CODE_LENGTH ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
 
+/** Accepts what people actually paste: "abcd-2345", " ABCD 2345 " or the whole invite link. */
+export function extractJoinCode(input: string): string {
+  const fromLink = input.match(/[?&]code=([^&#\s]+)/i);
+  if (!fromLink) return normalizeJoinCode(input);
+  try {
+    return normalizeJoinCode(decodeURIComponent(fromLink[1]));
+  } catch {
+    return normalizeJoinCode(fromLink[1]); // a broken %-escape: use the text as it is
+  }
+}
+
+/** Live formatting for the code field: ABCD-2345, only letters and digits, at most 8 of them. */
+export function formatJoinInput(input: string): string {
+  const clean = extractJoinCode(input).replace(/[^A-Z0-9]/g, '').slice(0, JOIN_CODE_LENGTH);
+  return clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean;
+}
+
 export function inviteLink(code: string): string {
   return appUrl(`/join?code=${code}`);
 }
 
+/** The code a student types for this group. Legacy groups (never migrated) use their id as the code. */
+export function groupCode(group: Pick<Group, 'id' | 'joinCode'>): string {
+  return group.joinCode ?? group.id;
+}
+
 export class JoinGroupError extends Error {
-  constructor(public code: 'invalid' | 'not_found' | 'failed', message: string) {
+  constructor(public code: 'invalid' | 'not_found' | 'closed' | 'removed' | 'limit' | 'archived' | 'failed', message: string) {
     super(message);
   }
 }
 
+function isPermissionDenied(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === 'permission-denied';
+}
+
+export function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+// A write batch holds at most 500 operations; stay below it.
+const BATCH_LIMIT = 400;
+
+/** A code nobody uses yet: not a join code, and not the id of a legacy group (those ids are codes too). */
+async function freshCode(): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = generateJoinCode();
+    const [asCode, asLegacyId] = await Promise.all([getDoc(doc(db, 'joinCodes', code)), getDoc(doc(db, 'groups', code))]);
+    if (!asCode.exists() && !asLegacyId.exists()) return code;
+  }
+  throw new Error('Could not allocate a join code, try again');
+}
+
+/**
+ * New groups get an automatic id; the join code is a separate document so it can be replaced without
+ * breaking the group (exams, attempts and members all point at the id).
+ */
 export async function createGroup(owner: { uid: string; name: string }, name: string): Promise<Group> {
-  const trimmed = name.trim();
+  const trimmed = name.trim().slice(0, 80);
   if (!trimmed) throw new Error('Group name is required');
 
+  try {
+    return await createCurrentGroup(owner, trimmed);
+  } catch (error) {
+    // Rules from before the groups rework are still deployed: fall back to the old shape (id = code).
+    if (isPermissionDenied(error)) return createLegacyGroup(owner, trimmed);
+    throw error;
+  }
+}
+
+async function createCurrentGroup(owner: { uid: string; name: string }, trimmed: string): Promise<Group> {
+  const code = await freshCode();
+  const ref = doc(collection(db, 'groups'));
+  const batch = writeBatch(db);
+  batch.set(ref, {
+    name: trimmed,
+    ownerId: owner.uid,
+    ownerName: owner.name,
+    joinCode: code,
+    joinOpen: true,
+    archived: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(db, 'joinCodes', code), { groupId: ref.id, active: true });
+  await batch.commit();
+  const now = new Date();
+  return { id: ref.id, name: trimmed, ownerId: owner.uid, ownerName: owner.name, joinCode: code, joinOpen: true, archived: false, createdAt: now, updatedAt: now };
+}
+
+async function createLegacyGroup(owner: { uid: string; name: string }, name: string): Promise<Group> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateJoinCode();
     const ref = doc(db, 'groups', code);
     if ((await getDoc(ref)).exists()) continue;
-    await setDoc(ref, {
-      name: trimmed.slice(0, 80),
-      ownerId: owner.uid,
-      ownerName: owner.name,
-      createdAt: serverTimestamp(),
-    });
-    return { id: code, name: trimmed.slice(0, 80), ownerId: owner.uid, ownerName: owner.name, createdAt: new Date() };
+    await setDoc(ref, { name, ownerId: owner.uid, ownerName: owner.name, createdAt: serverTimestamp() });
+    return { id: code, name, ownerId: owner.uid, ownerName: owner.name, createdAt: new Date() };
   }
   throw new Error('Could not allocate a join code, try again');
+}
+
+/**
+ * A legacy group (id = code, no joinCode) becomes a current one when its owner opens the groups page.
+ * The code stays the same, so printed links and QR codes keep working. Returns the group unchanged if the
+ * rules that allow it are not deployed yet.
+ */
+export async function migrateLegacyGroup(group: Group): Promise<Group> {
+  if (group.joinCode) return group;
+  const archived = group.archived ?? false;
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'joinCodes', group.id), { groupId: group.id, active: true });
+  batch.update(doc(db, 'groups', group.id), { joinCode: group.id, joinOpen: true, archived, updatedAt: serverTimestamp() });
+  try {
+    await batch.commit();
+  } catch (error) {
+    if (isPermissionDenied(error)) return group;
+    throw error;
+  }
+  return { ...group, joinCode: group.id, joinOpen: true, archived };
 }
 
 export async function fetchOwnedGroups(ownerId: string): Promise<Group[]> {
@@ -64,7 +159,16 @@ export async function fetchOwnedGroups(ownerId: string): Promise<Group[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Every group on the platform. The rules allow this for admins only. */
+export async function fetchAllGroups(): Promise<Group[]> {
+  const snap = await getDocs(collection(db, 'groups'));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() } as Group))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** Groups that no longer exist (deleted by the teacher) are silently dropped. */
+
 export async function fetchGroupsByIds(ids: string[]): Promise<{ groups: Group[]; missingIds: string[] }> {
   const results = await Promise.allSettled(ids.map(id => getDoc(doc(db, 'groups', id))));
   const groups: Group[] = [];
@@ -110,11 +214,34 @@ export function planGroupDeletion(groupId: string, exams: Exam[]): { unpublishId
   return { unpublishIds, detachIds };
 }
 
+/** Documents under a group that the owner must remove with it: after the group document is gone the rules can no longer tell who owned them. */
+async function listGroupSubdocs(groupId: string): Promise<DocumentReference[]> {
+  const refs: DocumentReference[] = [];
+  for (const sub of ['members', 'removed']) {
+    try {
+      const snap = await getDocs(collection(db, 'groups', groupId, sub));
+      snap.docs.forEach(d => refs.push(d.ref));
+    } catch (error) {
+      // Rules from before the groups rework do not know these collections: there is nothing to clean up then.
+      if (!isPermissionDenied(error)) throw error;
+    }
+  }
+  return refs;
+}
+
 export async function deleteGroupCascade(group: Group, exams: Exam[]): Promise<{ unpublished: number; detached: number }> {
   const { unpublishIds, detachIds } = planGroupDeletion(group.id, exams);
 
-  if (unpublishIds.length + detachIds.length + 1 > 400) {
+  if (unpublishIds.length + detachIds.length + 2 > BATCH_LIMIT) {
     throw new Error('Too many exams to delete at once (batch limit).');
+  }
+
+  // Members and removal marks first (in chunks, a class can be large). If this stops half way the group still
+  // exists and the owner can simply delete it again.
+  for (const part of chunk(await listGroupSubdocs(group.id), BATCH_LIMIT)) {
+    const cleanup = writeBatch(db);
+    part.forEach(ref => cleanup.delete(ref));
+    await cleanup.commit();
   }
 
   const batch = writeBatch(db);
@@ -132,6 +259,7 @@ export async function deleteGroupCascade(group: Group, exams: Exam[]): Promise<{
     });
   }
 
+  if (group.joinCode) batch.delete(doc(db, 'joinCodes', group.joinCode));
   batch.delete(doc(db, 'groups', group.id));
   await batch.commit();
 
@@ -139,7 +267,257 @@ export async function deleteGroupCascade(group: Group, exams: Exam[]): Promise<{
 }
 
 export async function setGroupArchived(groupId: string, archived: boolean): Promise<void> {
-  await updateDoc(doc(db, 'groups', groupId), { archived });
+  await updateDoc(doc(db, 'groups', groupId), { archived, updatedAt: serverTimestamp() });
+}
+
+// ---- Teacher side: members, code, settings --------------------------------------------------------------
+
+/** Students of a group who have a members record. Students who joined before the rework appear after they next open the app. */
+export async function fetchMembers(groupId: string): Promise<GroupMember[]> {
+  try {
+    const snap = await getDocs(collection(db, 'groups', groupId, 'members'));
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() } as GroupMember))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  } catch (error) {
+    if (isPermissionDenied(error)) return []; // old rules do not know the collection
+    throw error;
+  }
+}
+
+export async function fetchRemoved(groupId: string): Promise<RemovedMember[]> {
+  try {
+    const snap = await getDocs(collection(db, 'groups', groupId, 'removed'));
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() } as RemovedMember))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  } catch (error) {
+    if (isPermissionDenied(error)) return [];
+    throw error;
+  }
+}
+
+/**
+ * Removes a student: a mark that blocks coming back with the code, and the members record, in one batch. The
+ * student's own app drops the group from the profile when it finds the mark (the owner cannot edit profiles).
+ */
+export async function removeMember(groupId: string, member: Pick<GroupMember, 'uid' | 'name'>): Promise<void> {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'groups', groupId, 'removed', member.uid), { name: member.name ?? '', at: serverTimestamp() });
+  batch.delete(doc(db, 'groups', groupId, 'members', member.uid));
+  await batch.commit();
+}
+
+/** Lifts the mark: the student may join again with the current code. */
+export async function restoreMember(groupId: string, uid: string): Promise<void> {
+  await deleteDoc(doc(db, 'groups', groupId, 'removed', uid));
+}
+
+/** Replaces the code. The old code and every link or QR made from it stop working at once; members stay. */
+export async function rotateJoinCode(group: Group): Promise<string> {
+  if (!group.joinCode) throw new Error('The group has not been upgraded yet');
+  const code = await freshCode();
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'joinCodes', code), { groupId: group.id, active: true });
+  batch.update(doc(db, 'groups', group.id), { joinCode: code, updatedAt: serverTimestamp() });
+  batch.delete(doc(db, 'joinCodes', group.joinCode));
+  await batch.commit();
+  return code;
+}
+
+export async function setGroupJoinOpen(groupId: string, joinOpen: boolean): Promise<void> {
+  await updateDoc(doc(db, 'groups', groupId), { joinOpen, updatedAt: serverTimestamp() });
+}
+
+export async function updateGroupDetails(groupId: string, details: { name: string; description: string }): Promise<{ name: string; description: string }> {
+  const name = details.name.trim().slice(0, 80);
+  const description = details.description.trim().slice(0, 200);
+  if (!name) throw new Error('Group name is required');
+  await updateDoc(doc(db, 'groups', groupId), { name, description, updatedAt: serverTimestamp() });
+  return { name, description };
+}
+
+// ---- Admin: oversight of every group ------------------------------------------------------------------
+
+/** Number of students with a members record, or null when it cannot be read. Older students appear after they next open the app. */
+export async function countMembers(groupId: string): Promise<number | null> {
+  try {
+    return (await getCountFromServer(collection(db, 'groups', groupId, 'members'))).data().count;
+  } catch (error) {
+    if (isPermissionDenied(error)) return null;
+    throw error;
+  }
+}
+
+/** Gives the group to another teacher. Exams stay with their authors; the new owner gets the group, its students and its code. */
+export async function transferGroupOwner(groupId: string, owner: { uid: string; name: string }): Promise<void> {
+  await updateDoc(doc(db, 'groups', groupId), { ownerId: owner.uid, ownerName: owner.name, updatedAt: serverTimestamp() });
+}
+
+/** Opens or closes joining for any group, upgrading a legacy group first (it has no joinOpen switch before that). */
+export async function setJoinOpenForGroup(group: Group, joinOpen: boolean): Promise<Group> {
+  const current = group.joinCode ? group : await migrateLegacyGroup(group);
+  if (!current.joinCode) throw new Error('The group could not be upgraded yet');
+  await setGroupJoinOpen(group.id, joinOpen);
+  return { ...current, joinOpen };
+}
+
+export interface GroupStudent {
+  uid: string;
+  /** Name shown to the teacher in the members list. */
+  name: string;
+  groupIds?: string[];
+}
+
+function memberRecord(student: GroupStudent, code: string) {
+  return { name: student.name.slice(0, 120), code, joinedAt: serverTimestamp() };
+}
+
+/** The most groups one student can be in (the rules enforce the same number). */
+export const MAX_GROUPS = 30;
+
+export type JoinStatus = 'joinable' | 'member' | 'closed' | 'removed' | 'limit' | 'archived';
+
+export interface JoinPreview {
+  group: Group;
+  /** The normalized code that was entered. */
+  code: string;
+  status: JoinStatus;
+}
+
+/**
+ * Looks a code up and says what would happen if the student joined, without writing anything. The join card shows
+ * this so nobody enters a group (or fails to) without knowing which group it is and why.
+ */
+export async function previewJoin(student: GroupStudent, rawCode: string): Promise<JoinPreview> {
+  const code = extractJoinCode(rawCode);
+  if (!isValidJoinCode(code)) throw new JoinGroupError('invalid', 'That code does not look right. A code has 8 letters and digits, like ABCD-2345.');
+
+  const notFound = new JoinGroupError('not_found', 'No group with this code. It may have been replaced: ask your teacher for the current one.');
+
+  const codeSnap = await getDoc(doc(db, 'joinCodes', code));
+  const viaCode = codeSnap.exists();
+  let groupId = code;
+  if (viaCode) {
+    if (codeSnap.data().active !== true) throw notFound;
+    groupId = String(codeSnap.data().groupId);
+  }
+
+  const groupSnap = await getDoc(doc(db, 'groups', groupId));
+  if (!groupSnap.exists()) throw notFound;
+  const group = { id: groupSnap.id, ...groupSnap.data() } as Group;
+  const current = typeof group.joinCode === 'string';
+
+  // The id of a current group is not an invitation; only its code is.
+  if (current && !viaCode) throw notFound;
+
+  const ids = student.groupIds ?? [];
+  let status: JoinStatus = 'joinable';
+  if (ids.includes(groupId)) status = 'member';
+  else if (await wasRemoved(student.uid, groupId)) status = 'removed';
+  else if (current && group.joinOpen === false) status = 'closed';
+  else if (group.archived) status = 'archived';
+  else if (ids.length >= MAX_GROUPS) status = 'limit';
+
+  return { group, code, status };
+}
+
+export type JoinRefusal = Exclude<JoinStatus, 'joinable' | 'member'>;
+
+const REFUSALS: Record<JoinRefusal, [JoinGroupError['code'], string]> = {
+  closed: ['closed', 'This group is not accepting new students right now. Ask your teacher.'],
+  removed: ['removed', 'You were removed from this group. Ask your teacher if you should be back.'],
+  archived: ['archived', 'This group was archived by the teacher, so it is not accepting students.'],
+  limit: ['limit', `You are already in ${MAX_GROUPS} groups, the maximum. Leave one to join another.`],
+};
+
+/** What to tell a student who cannot join, and what to do about it. */
+export function refusalMessage(status: JoinRefusal): string {
+  return REFUSALS[status][1];
+}
+
+/**
+ * A student enters a code. For a current group the members record and groupIds are written in ONE batch (the
+ * rules refuse groupIds without a valid code and a record). Legacy groups still accept the plain groupIds update.
+ */
+export async function joinGroupByCode(student: GroupStudent, rawCode: string): Promise<Group> {
+  const { group, code, status } = await previewJoin(student, rawCode);
+
+  if (status === 'member') {
+    await ensureMemberRecord(student, group).catch(() => {});
+    return group;
+  }
+  if (status !== 'joinable') {
+    const [reason, message] = REFUSALS[status];
+    throw new JoinGroupError(reason, message);
+  }
+
+  const groupId = group.id;
+  const current = typeof group.joinCode === 'string';
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'groups', groupId, 'members', student.uid), memberRecord(student, code));
+  batch.update(doc(db, 'users', student.uid), { groupIds: arrayUnion(groupId) });
+  try {
+    await batch.commit();
+  } catch (error) {
+    if (!current && isPermissionDenied(error)) {
+      // Rules from before the groups rework: the old plain join.
+      try {
+        await updateDoc(doc(db, 'users', student.uid), { groupIds: arrayUnion(groupId) });
+        return group;
+      } catch (fallbackError) {
+        console.error('Error joining group', fallbackError);
+      }
+    } else {
+      console.error('Error joining group', error);
+    }
+    throw new JoinGroupError('failed', 'Could not join the group. Check your connection and try again.');
+  }
+  return group;
+}
+
+async function wasRemoved(uid: string, groupId: string): Promise<boolean> {
+  try {
+    return (await getDoc(doc(db, 'groups', groupId, 'removed', uid))).exists();
+  } catch {
+    return false; // unreadable (old rules): the server-side rules decide anyway
+  }
+}
+
+async function ensureMemberRecord(student: GroupStudent, group: Group): Promise<void> {
+  const ref = doc(db, 'groups', group.id, 'members', student.uid);
+  if ((await getDoc(ref)).exists()) return;
+  await setDoc(ref, memberRecord(student, groupCode(group)));
+}
+
+/** Leaving removes the members record and the id from groupIds together. */
+export async function leaveGroupMembership(uid: string, groupId: string): Promise<void> {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'groups', groupId, 'members', uid));
+  batch.update(doc(db, 'users', uid), { groupIds: arrayRemove(groupId) });
+  try {
+    await batch.commit();
+  } catch (error) {
+    if (!isPermissionDenied(error)) throw error;
+    await updateDoc(doc(db, 'users', uid), { groupIds: arrayRemove(groupId) }); // old rules
+  }
+}
+
+/**
+ * Run when a student opens the dashboard: finds the groups the owner removed the student from (the owner cannot
+ * edit a student's profile, so the student's app drops them) and adds the members record that groups joined
+ * before the rework do not have yet. Never throws: this is housekeeping.
+ */
+export async function reconcileMemberships(student: GroupStudent, groups: Group[]): Promise<{ removedIds: string[] }> {
+  const removedIds: string[] = [];
+  await Promise.allSettled(groups.map(async group => {
+    if (await wasRemoved(student.uid, group.id)) {
+      removedIds.push(group.id);
+      return;
+    }
+    await ensureMemberRecord(student, group);
+  }));
+  return { removedIds };
 }
 
 // A student who opens an invite link while signed out has to log in first

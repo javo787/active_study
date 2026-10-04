@@ -18,8 +18,41 @@ service cloud.firestore {
       return exam.get('groupIds', []).size() == 0 || myGroups().hasAny(exam.get('groupIds', []));
     }
 
-    // A user may only append ONE group that exists (knowing the code is the invitation),
-    // or remove groups. Nothing else can change groupIds.
+    // ---- Groups -------------------------------------------------------------------------------------
+    // A group is groups/{id}. Two generations live side by side:
+    //  * legacy: the id IS the join code and the document has no `joinCode` field. Knowing the id is the invitation.
+    //  * current: the document has `joinCode`. Joining needs an ACTIVE joinCodes/{code} that points to the group,
+    //    an open group, no "removed" mark, and a members/{uid} record written in the same batch as groupIds.
+    // A legacy group becomes current when its owner opens the groups page (the client writes joinCode).
+    function groupData(gid) { return get(/databases/$(database)/documents/groups/$(gid)).data; }
+    function ownsGroup(gid) { return isTeacher() && groupData(gid).ownerId == request.auth.uid; }
+    function codeOk(gid, code) {
+      return exists(/databases/$(database)/documents/joinCodes/$(code))
+          && get(/databases/$(database)/documents/joinCodes/$(code)).data.groupId == gid
+          && get(/databases/$(database)/documents/joinCodes/$(code)).data.active == true;
+    }
+    function notRemoved(gid) {
+      return !exists(/databases/$(database)/documents/groups/$(gid)/removed/$(request.auth.uid));
+    }
+    // May the signed-in user enter group `gid` with `code`?
+    function mayEnter(gid, code) {
+      let g = groupData(gid);
+      return !('joinCode' in g)
+          ? code == gid
+          : (g.get('joinOpen', true) == true && codeOk(gid, code));
+    }
+    // groupIds gains `gid`: legacy groups as before; current groups only together with a valid members record.
+    function joinAllowed(gid) {
+      let g = groupData(gid);
+      let mp = /databases/$(database)/documents/groups/$(gid)/members/$(request.auth.uid);
+      return !('joinCode' in g)
+          || (existsAfter(mp)
+              && getAfter(mp).data.code is string
+              && mayEnter(gid, getAfter(mp).data.code)
+              && notRemoved(gid));
+    }
+
+    // A user may only append ONE group they are allowed to enter, or remove groups. Nothing else can change groupIds.
     // Note: list[0:0] is an evaluation error in the rules engine ("Index out of bound"), so the slice is
     // guarded. Without the guard the FIRST group a student joins (empty or missing groupIds) was always refused.
     function groupsChangeAllowed() {
@@ -29,7 +62,7 @@ service cloud.firestore {
           || (after.size() == before.size() + 1
               && after.size() <= 30
               && (before.size() == 0 || after[0:before.size()] == before)
-              && exists(/databases/$(database)/documents/groups/$(after[before.size()])));
+              && joinAllowed(after[before.size()]));
     }
 
     // A user may only raise their own teacher request (none -> pending).
@@ -56,19 +89,95 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Class groups. The document id is the join code, so `get` is open to signed-in users
-    // (they need the code to know the id) while `list` is limited to the owner.
+    // Class groups. `get` is open to signed-in users (the join card shows the name and the teacher to somebody
+    // who holds a code); `list` is limited to the owner.
     match /groups/{groupId} {
       function isGroupOwner() { return isTeacher() && resource.data.ownerId == request.auth.uid; }
+      function nameOk(d) { return d.name is string && d.name.size() >= 1 && d.name.size() <= 80; }
+      function descriptionOk(d) { return !('description' in d) || (d.description is string && d.description.size() <= 200); }
+      function flagsOk(d) {
+        return (!('joinOpen' in d) || d.joinOpen is bool) && (!('archived' in d) || d.archived is bool);
+      }
+      // A group may only claim a join code that points back at it (written in the same batch).
+      function codeMatchesGroup(d) {
+        return !('joinCode' in d)
+            || (d.joinCode is string
+                && existsAfter(/databases/$(database)/documents/joinCodes/$(d.joinCode))
+                && getAfter(/databases/$(database)/documents/joinCodes/$(d.joinCode)).data.groupId == groupId);
+      }
 
       allow get: if signedIn();
       allow list: if isAdmin() || isGroupOwner();
       allow create: if (isAdmin() || isTeacher())
                     && request.resource.data.ownerId == request.auth.uid
-                    && groupId.matches('^[A-HJ-NP-Z2-9]{8}$');
+                    && groupId.matches('^[A-Za-z0-9]{8,40}$')
+                    && nameOk(request.resource.data)
+                    && descriptionOk(request.resource.data)
+                    && flagsOk(request.resource.data)
+                    && codeMatchesGroup(request.resource.data);
       allow update: if isAdmin()
-                    || (isGroupOwner() && request.resource.data.ownerId == resource.data.ownerId);
+                    || (isGroupOwner()
+                        && request.resource.data.ownerId == resource.data.ownerId
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['name', 'description', 'ownerName', 'joinCode', 'joinOpen', 'archived', 'updatedAt'])
+                        && nameOk(request.resource.data)
+                        && descriptionOk(request.resource.data)
+                        && flagsOk(request.resource.data)
+                        && codeMatchesGroup(request.resource.data));
       allow delete: if isAdmin() || isGroupOwner();
+
+      // Who is in the group. A student writes the own record in the same batch as groupIds; the owner reads the list.
+      match /members/{uid} {
+        allow get: if signedIn() && (request.auth.uid == uid || ownsGroup(groupId) || isAdmin());
+        allow list: if signedIn() && (ownsGroup(groupId) || isAdmin());
+        allow create: if signedIn() && request.auth.uid == uid
+                      && request.resource.data.keys().hasOnly(['name', 'code', 'joinedAt'])
+                      && request.resource.data.name is string && request.resource.data.name.size() <= 120
+                      && request.resource.data.code is string
+                      && request.resource.data.joinedAt == request.time
+                      && notRemoved(groupId)
+                      && (groupId in myGroups() || mayEnter(groupId, request.resource.data.code));
+        allow update: if signedIn() && request.auth.uid == uid
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+                      && request.resource.data.name is string && request.resource.data.name.size() <= 120;
+        allow delete: if signedIn() && (request.auth.uid == uid || ownsGroup(groupId) || isAdmin());
+      }
+
+      // Students the owner removed. They cannot join again until the owner deletes the mark, and the student's
+      // app drops the group from groupIds when it finds the mark (the owner cannot edit a student's profile).
+      match /removed/{uid} {
+        allow get: if signedIn() && (request.auth.uid == uid || ownsGroup(groupId) || isAdmin());
+        allow list: if signedIn() && (ownsGroup(groupId) || isAdmin());
+        allow create: if signedIn() && (ownsGroup(groupId) || isAdmin())
+                      && request.resource.data.keys().hasOnly(['name', 'at'])
+                      && request.resource.data.at == request.time;
+        allow delete: if signedIn() && (ownsGroup(groupId) || isAdmin());
+      }
+    }
+
+    // Join codes. Resolving a code (get) is open to signed-in users; nobody can list them. A code is deleted, not
+    // just deactivated, when it is replaced, so an old code does not reveal which group it belonged to.
+    match /joinCodes/{code} {
+      function codeGroupOwner(gid) { return isAdmin() || (isTeacher() && groupData(gid).ownerId == request.auth.uid); }
+
+      allow get: if signedIn();
+      allow create: if signedIn()
+                    && code.matches('^[A-HJ-NP-Z2-9]{8}$')
+                    && request.resource.data.keys().hasOnly(['groupId', 'active'])
+                    && request.resource.data.groupId is string
+                    && request.resource.data.active == true
+                    // A code that is also the id of a legacy group belongs to that group (legacy invitations
+                    // are the group id), so nobody can claim it for another group.
+                    && (!exists(/databases/$(database)/documents/groups/$(code))
+                        || request.resource.data.groupId == code)
+                    && existsAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId))
+                    && (getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.ownerId == request.auth.uid
+                        || isAdmin())
+                    && (isTeacher() || isAdmin());
+      allow update: if signedIn() && codeGroupOwner(resource.data.groupId)
+                    && request.resource.data.keys().hasOnly(['groupId', 'active'])
+                    && request.resource.data.groupId == resource.data.groupId;
+      allow delete: if signedIn() && codeGroupOwner(resource.data.groupId);
     }
 
     match /exams/{examId} {

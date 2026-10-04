@@ -3,7 +3,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Exam } from '@/types';
+import { Exam, Group } from '@/types';
+import { fetchAllGroups, fetchOwnedGroups } from '@/lib/groups';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { deleteExamCascade, duplicateExam, validateExamForPublish } from '@/lib/examOps';
@@ -17,6 +18,7 @@ export default function MyExamsPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [exams, setExams] = useState<Exam[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -49,6 +51,8 @@ export default function MyExamsPage() {
           });
 
         setExams(examsData);
+        // Group names are a nicety: without them the cards simply show no labels.
+        (user.role === 'admin' ? fetchAllGroups() : fetchOwnedGroups(user.uid)).then(setGroups).catch(console.error);
       } catch (error) {
         console.error(error);
         toast.error('Failed to fetch exams');
@@ -151,6 +155,8 @@ export default function MyExamsPage() {
   };
 
   const filteredExams = exams.filter(e => e.title.toLowerCase().includes(search.toLowerCase()));
+  const groupsHref = user?.role === 'admin' ? '/dashboard/admin/groups' : '/dashboard/teacher/groups';
+  const groupsOf = (exam: Exam) => groups.filter(g => exam.groupIds?.includes(g.id));
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -245,6 +251,22 @@ export default function MyExamsPage() {
                   <Clock className="w-3 h-3" /> {exam.timeLimit}m
                 </span>
               </div>
+
+              {exam.visibility !== 'link' && groupsOf(exam).length > 0 && (
+                <ul className="flex flex-wrap gap-1.5 -mt-2" aria-label="Groups with access">
+                  {groupsOf(exam).slice(0, 3).map(g => (
+                    <li key={g.id}>
+                      <Link
+                        href={`${groupsHref}#group-${g.id}`}
+                        className="inline-flex items-center min-h-[32px] px-2.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+                      >
+                        {g.name}
+                      </Link>
+                    </li>
+                  ))}
+                  {groupsOf(exam).length > 3 && <li className="self-center text-xs text-slate-500">+{groupsOf(exam).length - 3} more</li>}
+                </ul>
+              )}
 
               <div className="text-sm text-slate-500 mt-auto pt-4 border-t border-slate-50 flex justify-between items-center">
                 <span>Expires in {formatDistanceToNow(exam.expiresAt && 'toDate' in exam.expiresAt ? exam.expiresAt.toDate() : (exam.expiresAt as Date))}</span>

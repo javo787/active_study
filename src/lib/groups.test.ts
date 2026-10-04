@@ -6,7 +6,9 @@ vi.mock('@/lib/firebase', () => ({ db: {}, auth: {} }));
 
 import {
   JOIN_CODE_LENGTH,
+  extractJoinCode,
   formatJoinCode,
+  formatJoinInput,
   generateJoinCode,
   inviteLink,
   isValidJoinCode,
@@ -72,5 +74,29 @@ describe('planGroupDeletion', () => {
   it('splits a mixed list', () => {
     const plan = planGroupDeletion('G1', [exam('a', ['G1']), exam('b', ['G1', 'G3']), exam('c', ['G3'])]);
     expect(plan).toEqual({ unpublishIds: ['a'], detachIds: ['b'] });
+  });
+});
+
+describe('code field input', () => {
+  it('takes the code out of a whole invite link, with or without the dash', () => {
+    expect(extractJoinCode('https://duxtur.org/edu/join?code=ABCD2345')).toBe('ABCD2345');
+    expect(extractJoinCode('https://duxtur.org/edu/join?x=1&code=abcd-2345#top')).toBe('ABCD2345');
+    expect(extractJoinCode('join?code=ABCD%202345')).toBe('ABCD2345');
+    expect(() => extractJoinCode('join?code=%E0%A4%A')).not.toThrow(); // a broken escape is kept as text
+  });
+
+  it('leaves a plain code alone', () => {
+    expect(extractJoinCode(' abcd 2345 ')).toBe('ABCD2345');
+  });
+
+  it('formats while typing: ABCD-2345, nothing but letters and digits, at most 8', () => {
+    expect(formatJoinInput('')).toBe('');
+    expect(formatJoinInput('abc')).toBe('ABC');
+    expect(formatJoinInput('abcd')).toBe('ABCD');
+    expect(formatJoinInput('abcd-')).toBe('ABCD'); // the dash comes back with the next character
+    expect(formatJoinInput('abcd-2')).toBe('ABCD-2');
+    expect(formatJoinInput('abcd23456789')).toBe('ABCD-2345');
+    expect(formatJoinInput('ab!cd#23 45')).toBe('ABCD-2345');
+    expect(formatJoinInput('https://duxtur.org/edu/join?code=QRST2345')).toBe('QRST-2345');
   });
 });
