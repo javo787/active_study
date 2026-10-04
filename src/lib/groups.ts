@@ -1,7 +1,7 @@
-import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import type { DocumentReference } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Exam, Group } from '@/types';
+import { Exam, Group, GroupMember, RemovedMember } from '@/types';
 import { appUrl } from './appUrl';
 
 // No 0/O, 1/I: codes get read aloud and typed from a projector. L stays in the alphabet (existing codes may contain it).
@@ -242,6 +242,73 @@ export async function deleteGroupCascade(group: Group, exams: Exam[]): Promise<{
 
 export async function setGroupArchived(groupId: string, archived: boolean): Promise<void> {
   await updateDoc(doc(db, 'groups', groupId), { archived, updatedAt: serverTimestamp() });
+}
+
+// ---- Teacher side: members, code, settings --------------------------------------------------------------
+
+/** Students of a group who have a members record. Students who joined before the rework appear after they next open the app. */
+export async function fetchMembers(groupId: string): Promise<GroupMember[]> {
+  try {
+    const snap = await getDocs(collection(db, 'groups', groupId, 'members'));
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() } as GroupMember))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  } catch (error) {
+    if (isPermissionDenied(error)) return []; // old rules do not know the collection
+    throw error;
+  }
+}
+
+export async function fetchRemoved(groupId: string): Promise<RemovedMember[]> {
+  try {
+    const snap = await getDocs(collection(db, 'groups', groupId, 'removed'));
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() } as RemovedMember))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  } catch (error) {
+    if (isPermissionDenied(error)) return [];
+    throw error;
+  }
+}
+
+/**
+ * Removes a student: a mark that blocks coming back with the code, and the members record, in one batch. The
+ * student's own app drops the group from the profile when it finds the mark (the owner cannot edit profiles).
+ */
+export async function removeMember(groupId: string, member: Pick<GroupMember, 'uid' | 'name'>): Promise<void> {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'groups', groupId, 'removed', member.uid), { name: member.name ?? '', at: serverTimestamp() });
+  batch.delete(doc(db, 'groups', groupId, 'members', member.uid));
+  await batch.commit();
+}
+
+/** Lifts the mark: the student may join again with the current code. */
+export async function restoreMember(groupId: string, uid: string): Promise<void> {
+  await deleteDoc(doc(db, 'groups', groupId, 'removed', uid));
+}
+
+/** Replaces the code. The old code and every link or QR made from it stop working at once; members stay. */
+export async function rotateJoinCode(group: Group): Promise<string> {
+  if (!group.joinCode) throw new Error('The group has not been upgraded yet');
+  const code = await freshCode();
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'joinCodes', code), { groupId: group.id, active: true });
+  batch.update(doc(db, 'groups', group.id), { joinCode: code, updatedAt: serverTimestamp() });
+  batch.delete(doc(db, 'joinCodes', group.joinCode));
+  await batch.commit();
+  return code;
+}
+
+export async function setGroupJoinOpen(groupId: string, joinOpen: boolean): Promise<void> {
+  await updateDoc(doc(db, 'groups', groupId), { joinOpen, updatedAt: serverTimestamp() });
+}
+
+export async function updateGroupDetails(groupId: string, details: { name: string; description: string }): Promise<{ name: string; description: string }> {
+  const name = details.name.trim().slice(0, 80);
+  const description = details.description.trim().slice(0, 200);
+  if (!name) throw new Error('Group name is required');
+  await updateDoc(doc(db, 'groups', groupId), { name, description, updatedAt: serverTimestamp() });
+  return { name, description };
 }
 
 export interface GroupStudent {

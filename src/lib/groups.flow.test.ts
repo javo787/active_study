@@ -57,6 +57,10 @@ vi.mock('firebase/firestore', () => {
       if (deniedWrites(r.path)) throw denied();
       applyUpdate(r.path, patch);
     },
+    deleteDoc: async (r: Ref) => {
+      if (deniedWrites(r.path)) throw denied();
+      store.delete(r.path);
+    },
     writeBatch: () => {
       const ops: Array<() => void> = [];
       const paths: string[] = [];
@@ -79,11 +83,18 @@ import {
   chunk,
   createGroup,
   deleteGroupCascade,
+  fetchMembers,
+  fetchRemoved,
   groupCode,
   joinGroupByCode,
   leaveGroupMembership,
   migrateLegacyGroup,
   reconcileMemberships,
+  removeMember,
+  restoreMember,
+  rotateJoinCode,
+  setGroupJoinOpen,
+  updateGroupDetails,
 } from './groups';
 
 const CODE = 'QRST2345';
@@ -297,6 +308,68 @@ describe('deleteGroupCascade', () => {
     deniedReads = () => { throw new Error('network'); };
     await expect(deleteGroupCascade(group, [])).rejects.toThrow('network');
     expect(store.has(`groups/${GID}`)).toBe(true);
+  });
+});
+
+describe('teacher tools', () => {
+  const current = () => ({ id: GID, name: 'Anatomy', ownerId: 't1', joinCode: CODE, createdAt: new Date() }) as Group;
+
+  it('lists members by name', async () => {
+    seedCurrent();
+    store.set(`groups/${GID}/members/b`, { name: 'Bakhtiyor' });
+    store.set(`groups/${GID}/members/a`, { name: 'Aziza' });
+    store.set(`groups/${GID}/members/a/nested/x`, { name: 'not a member' });
+    expect((await fetchMembers(GID)).map(m => m.name)).toEqual(['Aziza', 'Bakhtiyor']);
+  });
+
+  it('lists nothing (instead of failing) under the old rules', async () => {
+    deniedReads = () => true;
+    expect(await fetchMembers(GID)).toEqual([]);
+    expect(await fetchRemoved(GID)).toEqual([]);
+  });
+
+  it('removing a student leaves a mark and deletes the record; restoring deletes the mark', async () => {
+    seedCurrent();
+    store.set(`groups/${GID}/members/s1`, { name: 'Aziza' });
+    await removeMember(GID, { uid: 's1', name: 'Aziza' });
+    expect(store.has(`groups/${GID}/members/s1`)).toBe(false);
+    expect(store.get(`groups/${GID}/removed/s1`)).toMatchObject({ name: 'Aziza' });
+    expect((await fetchRemoved(GID)).map(m => m.uid)).toEqual(['s1']);
+
+    await restoreMember(GID, 's1');
+    expect(store.has(`groups/${GID}/removed/s1`)).toBe(false);
+  });
+
+  it('rotating the code: new code in, group points at it, old code gone, old code no longer joins', async () => {
+    seedCurrent();
+    const code = await rotateJoinCode(current());
+    expect(code).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+    expect(code).not.toBe(CODE);
+    expect(store.get(`joinCodes/${code}`)).toEqual({ groupId: GID, active: true });
+    expect(store.has(`joinCodes/${CODE}`)).toBe(false);
+    expect(store.get(`groups/${GID}`)?.joinCode).toBe(code);
+
+    await expect(joinGroupByCode(student(), CODE)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(joinGroupByCode(student(), code)).resolves.toMatchObject({ id: GID });
+  });
+
+  it('a group that was never upgraded cannot rotate', async () => {
+    await expect(rotateJoinCode({ id: 'ABCD2345', name: 'Legacy', ownerId: 't1', createdAt: new Date() } as Group)).rejects.toThrow();
+  });
+
+  it('opens and closes joining', async () => {
+    seedCurrent();
+    await setGroupJoinOpen(GID, false);
+    await expect(joinGroupByCode(student(), CODE)).rejects.toMatchObject({ code: 'closed' });
+    await setGroupJoinOpen(GID, true);
+    await expect(joinGroupByCode(student(), CODE)).resolves.toMatchObject({ id: GID });
+  });
+
+  it('trims and limits name and description, and refuses an empty name', async () => {
+    seedCurrent();
+    expect(await updateGroupDetails(GID, { name: '  Anatomy 2  ', description: ` ${'x'.repeat(300)} ` }))
+      .toEqual({ name: 'Anatomy 2', description: 'x'.repeat(200) });
+    await expect(updateGroupDetails(GID, { name: '  ', description: '' })).rejects.toThrow();
   });
 });
 
