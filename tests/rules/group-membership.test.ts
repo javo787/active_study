@@ -286,6 +286,12 @@ describe('join codes', () => {
     await assertFails(setDoc(doc(as('teacher2'), `joinCodes/${CODE_E}`), { groupId: GID, active: true }));
   });
 
+  it('a code that is the id of a legacy group cannot be claimed for another group', async () => {
+    // Legacy invitations are the group id; a teacher must not be able to redirect them.
+    await seed(getEnv(), { ...baseCast, ...currentGroup('grpPhysio000002', CODE_E, 'teacher2') });
+    await assertFails(setDoc(doc(as('teacher2'), `joinCodes/${CODE_A}`), { groupId: 'grpPhysio000002', active: true }));
+  });
+
   it('a student cannot create a code', async () => {
     await seed(getEnv(), modern);
     await assertFails(setDoc(doc(as('student1'), `joinCodes/${CODE_E}`), { groupId: GID, active: true }));

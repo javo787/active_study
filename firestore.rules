@@ -166,6 +166,10 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly(['groupId', 'active'])
                     && request.resource.data.groupId is string
                     && request.resource.data.active == true
+                    // A code that is also the id of a legacy group belongs to that group (legacy invitations
+                    // are the group id), so nobody can claim it for another group.
+                    && (!exists(/databases/$(database)/documents/groups/$(code))
+                        || request.resource.data.groupId == code)
                     && existsAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId))
                     && (getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.ownerId == request.auth.uid
                         || isAdmin())
