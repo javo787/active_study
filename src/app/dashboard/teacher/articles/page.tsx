@@ -3,7 +3,7 @@
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
-import { Eye, ExternalLink, Globe, Hourglass, LogIn, Newspaper, PenLine, ShieldX, Stethoscope, Pencil } from 'lucide-react';
+import { Eye, ExternalLink, Globe, Hourglass, Newspaper, PenLine, ShieldX, Pencil } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Pill } from '@/components/ui/Pill';
@@ -21,10 +21,11 @@ import {
   portalPath,
 } from '@/lib/portalAccount';
 
-// A teacher at a medical university is a doctor: articles are written through the doctor cabinet on duxtur.org,
-// under the doctor profile that the portal team verified. This page is the way in from Edu and the list of what
-// the teacher has written; it never touches an article itself. Everything here is plain <a> because the portal
-// pages are outside Edu's /edu base path (next/link would prefix them).
+// A teacher at a medical university is a doctor: articles are written on duxtur.org, under the doctor profile that
+// the portal team verified. This page is the way in from Edu: "Write an article" opens the editor on the portal and
+// the portal recognises the person from their Edu sign-in (see the auth-bridge page), so nothing is asked twice.
+// The list of what the teacher has written shows when this browser also has a portal session. Everything here is
+// plain <a> because the portal pages are outside Edu's /edu base path (next/link would prefix them).
 
 const OFF_PORTAL_URL = 'https://duxtur.org/edu/dashboard/teacher/articles';
 
@@ -59,12 +60,12 @@ export default function TeacherArticles() {
         title={t('nav.articles')}
         description={t('articles.intro')}
         actions={
-          access === 'approved' ? (
-            <a href={portalPath(lang, '/admin?tab=write')} className={`${btnPrimary} flex-1 sm:flex-none`}>
+          view.kind === 'off_portal' || access === 'rejected' ? undefined : (
+            <a href={portalPath(lang, '/write?from=edu')} className={`${btnPrimary} flex-1 sm:flex-none`}>
               <PenLine className="w-4 h-4" aria-hidden="true" />
               {t('articles.write')}
             </a>
-          ) : undefined
+          )
         }
       />
 
@@ -84,20 +85,8 @@ export default function TeacherArticles() {
         </Notice>
       )}
 
-      {access === 'not_signed_in' && (
-        <Notice icon={<LogIn className="w-5 h-5" />} title={t('articles.sign_in_title')} body={t('articles.sign_in_body')}>
-          <a href={portalPath(lang, '/login')} className={btnPrimary}>
-            {t('articles.sign_in_action')}
-          </a>
-        </Notice>
-      )}
-
-      {access === 'no_profile' && (
-        <Notice icon={<Stethoscope className="w-5 h-5" />} title={t('articles.no_profile_title')} body={t('articles.no_profile_body')}>
-          <a href={portalPath(lang, '/register')} className={btnPrimary}>
-            {t('articles.no_profile_action')}
-          </a>
-        </Notice>
+      {(access === 'not_signed_in' || access === 'no_profile') && (
+        <p className="text-sm text-slate-500 max-w-prose">{t('articles.write_hint')}</p>
       )}
 
       {access === 'pending' && (
@@ -210,16 +199,14 @@ function ArticleList({ lang }: { lang: string }) {
                   </p>
                 </div>
                 <div className="flex gap-2 sm:w-64 sm:shrink-0 sm:justify-end">
-                  {article.published && (
-                    <a
-                      href={portalPath(lang, `/blog/${encodeURIComponent(article.slug)}`)}
-                      className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex-1 sm:flex-none`}
-                      aria-label={t('articles.open_label', { title })}
-                    >
-                      <ExternalLink className="w-4 h-4" aria-hidden="true" />
-                      {t('articles.open')}
-                    </a>
-                  )}
+                  <a
+                    href={portalPath(lang, `/blog/${encodeURIComponent(article.slug)}`)}
+                    className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex-1 sm:flex-none`}
+                    aria-label={t('articles.open_label', { title })}
+                  >
+                    <ExternalLink className="w-4 h-4" aria-hidden="true" />
+                    {t('articles.open')}
+                  </a>
                   <a
                     href={portalPath(lang, '/admin?tab=articles')}
                     className={`${btn} text-slate-600 hover:bg-slate-100 flex-1 sm:flex-none`}
