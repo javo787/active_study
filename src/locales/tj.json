@@ -6,6 +6,8 @@
       "continue_google": "Идома бо Google",
       "signing_in": "Воридшавӣ...",
       "continue_telegram": "Идома бо Telegram",
+      "continue_email": "Идома бо e-mail",
+      "email_hint": "Дар duxtur.org нишонии e-mail-ро ворид кунед, истиноди воридшавӣ мегиред ва ба ин ҷо бармегардед.",
       "starting": "Оғоз...",
       "tg_instructions_1": "1. Telegram-ро кушоед ва <b>Оғоз</b>-ро пахш кунед.",
       "tg_instructions_2": "2. Дар бот <b>Тасдиқ</b>-ро пахш кунед.",

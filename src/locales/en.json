@@ -6,6 +6,8 @@
       "continue_google": "Continue with Google",
       "signing_in": "Signing in...",
       "continue_telegram": "Continue with Telegram",
+      "continue_email": "Continue with e-mail",
+      "email_hint": "You will get a sign-in link by e-mail and come back here.",
       "starting": "Starting...",
       "tg_instructions_1": "1. Open Telegram and press <b>Start</b>.",
       "tg_instructions_2": "2. Tap <b>Confirm</b> in the bot.",
