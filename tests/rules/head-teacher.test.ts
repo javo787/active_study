@@ -3,7 +3,7 @@ import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
   collection, deleteField, doc, getCountFromServer, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore';
-import { approvalUpdate } from '../../src/lib/teacherRequests';
+import { approvalUpdate } from '../../src/lib/teacherRequestUpdates';
 import { seed, rulesEnv, userDoc } from './helpers';
 
 const getEnv = rulesEnv();

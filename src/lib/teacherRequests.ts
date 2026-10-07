@@ -1,24 +1,10 @@
-import { QuerySnapshot, collection, deleteField, doc, getCountFromServer, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { QuerySnapshot, collection, doc, getCountFromServer, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { DECLINE_UPDATE, approvalUpdate } from '@/lib/teacherRequestUpdates';
 import { User } from '@/types';
 
 // Teacher requests: a student asks for teacher access (teacherStatus 'pending'); the admin or the head teacher answers.
-// The writes below are exactly what firestore.rules allows a head teacher to do (headTeacherAnswer): change a word here
-// and tests/rules/head-teacher.test.ts says whether the rules still accept it.
-
-/** Approving: student -> teacher. The request and the student's 30-day expiry go away, and who approved stays on record. */
-export function approvalUpdate(approverUid: string): Record<string, unknown> {
-  return {
-    role: 'teacher',
-    teacherStatus: deleteField(),
-    expiresAt: deleteField(),
-    teacherApprovedBy: approverUid,
-    teacherApprovedAt: serverTimestamp(),
-  };
-}
-
-/** Declining keeps the request visible as "declined", so a mistake can be undone by approving it later. */
-export const DECLINE_UPDATE = { teacherStatus: 'rejected' } as const;
+// The writes themselves (approvalUpdate, DECLINE_UPDATE) are in teacherRequestUpdates.ts.
 
 export async function approveTeacherRequest(userId: string, approverUid: string): Promise<void> {
   await updateDoc(doc(db, 'users', userId), approvalUpdate(approverUid));
