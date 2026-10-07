@@ -34,6 +34,21 @@ export const NAV_ITEMS = {
   ]
 } as const;
 
+/** Teacher requests: in the menu of the head teacher only (see navItemsFor). */
+export const REQUESTS_HREF = '/dashboard/teacher/requests';
+const REQUESTS_NAV_ITEM = { href: REQUESTS_HREF, i18nKey: 'nav.teacher_requests' } as const;
+
+type NavEntry = { readonly href: string; readonly i18nKey: string };
+
+/** The menu of a person: by role, and a head teacher gets "Teacher requests" before "Profile". */
+export function navItemsFor(user: { role: string; headTeacher?: boolean }): readonly NavEntry[] {
+  const base: readonly NavEntry[] = NAV_ITEMS[user.role as keyof typeof NAV_ITEMS] || [];
+  if (user.role !== 'teacher' || user.headTeacher !== true) return base;
+  const profileAt = base.findIndex(item => item.href === '/dashboard/profile');
+  const at = profileAt === -1 ? base.length : profileAt;
+  return [...base.slice(0, at), REQUESTS_NAV_ITEM, ...base.slice(at)];
+}
+
 export function isNavActive(pathname: string, href: string): boolean {
   if (href === '/dashboard/admin' || href === '/dashboard/teacher' || href === '/dashboard/student') {
     return pathname === href;
@@ -54,6 +69,7 @@ const TITLE_MAP: Record<string, string> = {
   '/dashboard/teacher/attempts': 'nav.attempts',
   '/dashboard/teacher/articles': 'nav.articles',
   '/dashboard/teacher/importer': 'nav.import',
+  '/dashboard/teacher/requests': 'nav.teacher_requests',
   '/dashboard/admin': 'nav.admin_overview',
   '/dashboard/admin/users': 'nav.user_management',
   '/dashboard/admin/groups': 'nav.admin_groups',

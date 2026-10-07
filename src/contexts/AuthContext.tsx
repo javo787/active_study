@@ -22,6 +22,7 @@ interface AppUser {
   course?: number;
   department?: string;
   teacherStatus?: TeacherStatus;
+  headTeacher?: boolean;
   groupIds?: string[];
 }
 

@@ -9,7 +9,7 @@ import ProfileForm, { ProfileKind } from '@/components/ProfileForm';
 
 const CHOICES: { kind: ProfileKind; title: string; text: string; Icon: typeof GraduationCap }[] = [
   { kind: 'student', title: 'I am a student', text: 'Take exams and see your results.', Icon: GraduationCap },
-  { kind: 'teacher', title: 'I am a teacher', text: 'Create exams and groups. An admin confirms your access.', Icon: BookOpen },
+  { kind: 'teacher', title: 'I am a teacher', text: 'Create exams and groups. An admin or the head teacher confirms your access.', Icon: BookOpen },
 ];
 
 export default function ProfileSetup() {
@@ -52,7 +52,7 @@ export default function ProfileSetup() {
               {kind === 'student' ? 'Tell us about you' : 'Request teacher access'}
             </h2>
             <p className="text-slate-500 text-sm mb-6 text-center">
-              {kind === 'student' ? 'It takes about 30 seconds.' : 'An admin reviews every request. You can use the student view in the meantime.'}
+              {kind === 'student' ? 'It takes about 30 seconds.' : 'An admin or the head teacher reviews every request. You can use the student view in the meantime.'}
             </p>
             <ProfileForm
               kind={kind}

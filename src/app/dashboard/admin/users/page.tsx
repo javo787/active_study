@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { User, UserRole } from '@/types';
 import { toast } from 'react-hot-toast';
 import { UserGroups } from '@/components/groups/UserGroups';
+import { HeadTeacherToggle } from '@/components/admin/HeadTeacherToggle';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Pill, PillTone } from '@/components/ui/Pill';
 
@@ -42,17 +43,32 @@ export default function AdminUsersPage() {
     try {
       // Any manual role change settles a teacher request, one way or the other.
       const updates: Record<string, unknown> = { role: newRole, teacherStatus: deleteField() };
+      // The head teacher flag belongs to a teacher: moving the person to any other role takes it back.
+      if (newRole !== 'teacher') updates.headTeacher = deleteField();
       if (newRole === 'student') {
         updates.expiresAt = Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
       } else {
         updates.expiresAt = deleteField();
       }
       await updateDoc(doc(db, 'users', userId), updates);
-      setUsers(users.map(u => u.uid === userId ? { ...u, role: newRole, teacherStatus: undefined } : u));
+      setUsers(users.map(u => u.uid === userId
+        ? { ...u, role: newRole, teacherStatus: undefined, headTeacher: newRole === 'teacher' ? u.headTeacher : undefined }
+        : u));
       toast.success('User role updated successfully.');
     } catch (error) {
       console.error('Error updating role:', error);
       toast.error('Failed to update user role.');
+    }
+  };
+
+  const setHeadTeacher = async (userId: string, on: boolean) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { headTeacher: on ? true : deleteField() });
+      setUsers(users.map(u => u.uid === userId ? { ...u, headTeacher: on ? true : undefined } : u));
+      toast.success(on ? 'Head teacher set. They can answer teacher requests.' : 'Head teacher removed.');
+    } catch (error) {
+      console.error('Error changing head teacher:', error);
+      toast.error('Could not change the head teacher.');
     }
   };
 
@@ -79,7 +95,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Users" description="Change roles, answer teacher requests and see which groups a person teaches or belongs to." />
+      <PageHeader title="Users" description="Change roles, make a teacher the head teacher, answer teacher requests and see which groups a person teaches or belongs to." />
 
       {requests.length > 0 && (
         <section aria-labelledby="requests-title" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -124,7 +140,10 @@ export default function AdminUsersPage() {
                 <div className="text-sm text-slate-500">{personDetails(u)}</div>
                 <UserGroups user={u} />
               </div>
-              <Pill tone={ROLE_TONE[u.role] ?? 'neutral'}>{u.role}</Pill>
+              <div className="flex flex-col items-end gap-1">
+                <Pill tone={ROLE_TONE[u.role] ?? 'neutral'}>{u.role}</Pill>
+                {u.role === 'teacher' && u.headTeacher && <Pill tone="info">Head teacher</Pill>}
+              </div>
             </div>
             <select
               value={u.role}
@@ -136,6 +155,9 @@ export default function AdminUsersPage() {
               <option value="teacher">Teacher</option>
               <option value="admin">Admin</option>
             </select>
+            {u.role === 'teacher' && (
+              <HeadTeacherToggle on={u.headTeacher === true} onChange={on => setHeadTeacher(u.uid, on)} />
+            )}
           </div>
         ))}
       </div>
@@ -159,7 +181,10 @@ export default function AdminUsersPage() {
                   <UserGroups user={u} />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap align-top">
-                  <Pill tone={ROLE_TONE[u.role] ?? 'neutral'}>{u.role}</Pill>
+                  <div className="flex flex-col items-start gap-1">
+                    <Pill tone={ROLE_TONE[u.role] ?? 'neutral'}>{u.role}</Pill>
+                    {u.role === 'teacher' && u.headTeacher && <Pill tone="info">Head teacher</Pill>}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                   <select
@@ -172,6 +197,9 @@ export default function AdminUsersPage() {
                     <option value="teacher">Teacher</option>
                     <option value="admin">Admin</option>
                   </select>
+                  {u.role === 'teacher' && (
+                    <HeadTeacherToggle on={u.headTeacher === true} onChange={on => setHeadTeacher(u.uid, on)} />
+                  )}
                 </td>
               </tr>
             ))}

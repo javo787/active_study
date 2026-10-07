@@ -5,7 +5,9 @@ import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { NAV_ITEMS, ADMIN_LINKS, getPageTitle, isNavActive } from '@/lib/nav';
+import { ADMIN_LINKS, REQUESTS_HREF, getPageTitle, isNavActive, navItemsFor } from '@/lib/nav';
+import { canAnswerRequests } from '@/lib/teacherRequests';
+import { useRequestCount } from '@/hooks/useRequestCount';
 import ProfileSetup from '@/components/ProfileSetup';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { assetPath } from '@/lib/appUrl';
@@ -20,6 +22,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { t } = useTranslation();
+  const waitingRequests = useRequestCount(user);
   const burgerRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -29,6 +32,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       if (pathname.startsWith('/dashboard/admin') && user.role !== 'admin') {
         router.replace(`/dashboard/${user.role}`);
       } else if (pathname.startsWith('/dashboard/teacher') && user.role !== 'teacher' && user.role !== 'admin') {
+        router.replace(`/dashboard/${user.role}`);
+      } else if (pathname.startsWith(REQUESTS_HREF) && !canAnswerRequests(user)) {
         router.replace(`/dashboard/${user.role}`);
       } else if (pathname.startsWith('/dashboard/student') && user.role !== 'student') {
         router.replace(`/dashboard/${user.role}`);
@@ -111,7 +116,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const navItems = NAV_ITEMS[user.role as keyof typeof NAV_ITEMS] || [];
+  const navItems = navItemsFor(user);
+  const portalKey = user.role === 'teacher' && user.headTeacher ? 'head_teacher' : user.role;
   const needsProfileSetup = user.role === 'student' && !user.fullName;
 
   return (
@@ -166,7 +172,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                <img src={assetPath('/logo.png')} alt="Logo" className="w-8 h-8 bg-white rounded p-0.5" />
                <div>
                  <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
-                 <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+                 <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${portalKey}_portal`, `${portalKey} Portal`)}</p>
                </div>
              </div>
              <button
@@ -191,6 +197,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 }`}
               >
                 {t(item.i18nKey as string, item.i18nKey as string)}
+                {item.href === REQUESTS_HREF && waitingRequests > 0 && (
+                  <span className="ml-2 inline-flex min-w-[1.25rem] justify-center rounded-full bg-amber-400 px-1.5 text-xs font-semibold text-slate-900">
+                    {waitingRequests}
+                    <span className="sr-only"> {t('requests.waiting_label')}</span>
+                  </span>
+                )}
               </Link>
               {item.href === '/dashboard/admin' && user.role === 'admin' && (
                 <div className="mt-2 ml-4 pl-4 border-l border-slate-700 space-y-1">
@@ -236,7 +248,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <img src={assetPath('/logo.png')} alt="Logo" className="w-10 h-10 bg-white rounded p-1" />
           <div>
             <h1 className="text-xl font-bold text-white tracking-tight">{t('auth.title', 'Duxtur Edu')}</h1>
-            <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${user.role}_portal`, `${user.role} Portal`)}</p>
+            <p className="text-sm text-slate-500 mt-1 capitalize">{t(`nav.${portalKey}_portal`, `${portalKey} Portal`)}</p>
           </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
@@ -251,6 +263,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               }`}
             >
               {t(item.i18nKey as string, item.i18nKey as string)}
+                {item.href === REQUESTS_HREF && waitingRequests > 0 && (
+                  <span className="ml-2 inline-flex min-w-[1.25rem] justify-center rounded-full bg-amber-400 px-1.5 text-xs font-semibold text-slate-900">
+                    {waitingRequests}
+                    <span className="sr-only"> {t('requests.waiting_label')}</span>
+                  </span>
+                )}
             </Link>
           ))}
         </nav>
@@ -287,7 +305,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             >
               <span>
                 {user.teacherStatus === 'pending'
-                  ? 'Teacher access requested. An admin will review it; until then you have the student view.'
+                  ? 'Teacher access requested. An admin or the head teacher will review it; until then you have the student view.'
                   : 'Your teacher request was declined. If this is a mistake, contact the admin.'}
               </span>
               {user.teacherStatus === 'pending' && (
