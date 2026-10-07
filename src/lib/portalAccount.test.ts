@@ -15,6 +15,7 @@ import {
   portalErrorKey,
   portalLocale,
   portalPath,
+  emailSignInPath,
   requestPortalCustomToken,
   signInMethod,
   unlinkPortalAccount,
@@ -267,5 +268,14 @@ describe('formatCount', () => {
     expect(formatCount(1234567)).toBe('1\u00a0234\u00a0567');
     expect(formatCount(-5)).toBe('0');
     expect(formatCount(12.9)).toBe('12');
+  });
+});
+
+describe('emailSignInPath', () => {
+  it('opens the portal sign-up page in the person\'s language and asks to come back to Edu', () => {
+    expect(emailSignInPath('ru')).toBe('/ru/signup?next=/edu');
+    expect(emailSignInPath('tj')).toBe('/tg/signup?next=/edu');
+    expect(emailSignInPath('en')).toBe('/ru/signup?next=/edu');
+    expect(emailSignInPath(undefined)).toBe('/ru/signup?next=/edu');
   });
 });

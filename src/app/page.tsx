@@ -3,21 +3,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Send } from 'lucide-react';
+import { Mail, Send } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { loadTelegramSession, clearTelegramSession, describeStartError, TelegramLoginError, TelegramLoginSession } from '@/lib/telegramAuth';
 import { describeError, tgLog, tgWatchCsp } from '@/lib/tgLog';
 import TelegramDiagnostics from '@/components/TelegramDiagnostics';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
-import { PortalSession, fetchPortalSession, portalErrorKey } from '@/lib/portalAccount';
+import { PortalSession, emailSignInPath, fetchPortalSession, portalErrorKey } from '@/lib/portalAccount';
+import { DUXTUR_HOSTS } from '@/lib/telegramAuth';
 import { assetPath } from '@/lib/appUrl';
 import { useTranslation, Trans } from 'react-i18next';
 
 export default function LoginPage() {
   const { user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signInWithDuxtur } = useAuth();
   const router = useRouter();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // E-mail sign-in is the portal's and needs its session, which exists on duxtur.org only (not on the standalone host).
+  const [onDuxtur, setOnDuxtur] = useState(false);
+  useEffect(() => setOnDuxtur(DUXTUR_HOSTS.includes(window.location.hostname)), []);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   // The duxtur.org account that is already signed in in this browser (Edu is mounted at duxtur.org/edu).
   const [portal, setPortal] = useState<PortalSession>({ signedIn: false });
@@ -254,6 +258,18 @@ export default function LoginPage() {
               <Send className="w-5 h-5" />
               {tgStarting ? t('auth.starting', 'Starting...') : t('auth.continue_telegram', 'Continue with Telegram')}
             </button>
+          )}
+          {onDuxtur && !portal.signedIn && (
+            <div className="space-y-2">
+              <a
+                href={emailSignInPath(i18n.language)}
+                className="w-full min-h-[48px] flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 focus:ring-4 focus:ring-slate-100 font-medium rounded-lg text-base px-5 py-3.5 transition-all duration-200"
+              >
+                <Mail className="w-5 h-5" aria-hidden="true" />
+                {t('auth.continue_email', 'Continue with e-mail')}
+              </a>
+              <p className="text-xs text-slate-500 text-left">{t('auth.email_hint', 'You will get a sign-in link by e-mail and come back here.')}</p>
+            </div>
           )}
           <TelegramDiagnostics />
         </div>

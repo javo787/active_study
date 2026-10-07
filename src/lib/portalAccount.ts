@@ -205,6 +205,14 @@ export function portalPath(lang: string | undefined, path: string): string {
   return `/${portalLocale(lang)}${path}`;
 }
 
+/**
+ * Sign-in with e-mail is the portal's: its sign-up page sends a link to the address and, with next=/edu, brings the
+ * person back here, where "Continue as ..." signs them in. Only meaningful on duxtur.org (the session is shared there).
+ */
+export function emailSignInPath(lang: string | undefined): string {
+  return portalPath(lang, '/signup?next=/edu');
+}
+
 /** An article of the signed-in doctor, as /api/doctor/articles lists it. */
 export interface DoctorArticle {
   slug: string;

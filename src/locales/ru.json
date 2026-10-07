@@ -6,6 +6,8 @@
       "continue_google": "Продолжить с Google",
       "signing_in": "Вход...",
       "continue_telegram": "Продолжить с Telegram",
+      "continue_email": "Войти по e-mail",
+      "email_hint": "Откроется duxtur.org: введите e-mail, получите ссылку для входа и вернётесь сюда.",
       "starting": "Запуск...",
       "tg_instructions_1": "1. Откройте Telegram и нажмите <b>Запустить</b>.",
       "tg_instructions_2": "2. Нажмите <b>Подтвердить</b> в боте.",
