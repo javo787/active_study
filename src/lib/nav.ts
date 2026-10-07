@@ -30,6 +30,7 @@ export const NAV_ITEMS = {
   ],
   student: [
     { href: '/dashboard/student', i18nKey: 'nav.student_dashboard' },
+    { href: '/dashboard/student/assistant', i18nKey: 'nav.assistant' },
     { href: '/dashboard/profile', i18nKey: 'nav.profile' },
   ]
 } as const;
@@ -46,6 +47,8 @@ export function isNavActive(pathname: string, href: string): boolean {
 
 const TITLE_MAP: Record<string, string> = {
   '/dashboard/student': 'nav.student_dashboard',
+  '/dashboard/student/assistant': 'nav.assistant',
+  '/dashboard/student/assistant/session': 'nav.assistant',
   '/dashboard/teacher': 'nav.teacher_dashboard',
   '/dashboard/teacher/exams': 'nav.my_exams',
   '/dashboard/teacher/exams/create': 'common.create',
