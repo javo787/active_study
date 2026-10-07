@@ -10,13 +10,18 @@ import { describeError, tgLog, tgWatchCsp } from '@/lib/tgLog';
 import TelegramDiagnostics from '@/components/TelegramDiagnostics';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { PortalSession, fetchPortalSession, portalErrorKey } from '@/lib/portalAccount';
+import { assetPath } from '@/lib/appUrl';
 import { useTranslation, Trans } from 'react-i18next';
 
 export default function LoginPage() {
-  const { user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn } = useAuth();
+  const { user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signInWithDuxtur } = useAuth();
   const router = useRouter();
   const { t } = useTranslation();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  // The duxtur.org account that is already signed in in this browser (Edu is mounted at duxtur.org/edu).
+  const [portal, setPortal] = useState<PortalSession>({ signedIn: false });
+  const [portalStarting, setPortalStarting] = useState(false);
 
   const [tgSession, setTgSession] = useState<TelegramLoginSession | null>(null);
   const [tgStarting, setTgStarting] = useState(false);
@@ -80,6 +85,28 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    void fetchPortalSession().then(session => {
+      if (alive) setPortal(session);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const handleDuxturLogin = async () => {
+    setPortalStarting(true);
+    try {
+      await signInWithDuxtur();
+    } catch (err) {
+      tgLog('error', 'duxtur:sign-in-failed', describeError(err));
+      toast.error(t(`account.errors.${portalErrorKey(err)}`, t('auth.duxtur_failed', 'Could not sign in with duxtur.org.')));
+    } finally {
+      setPortalStarting(false);
+    }
+  };
+
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try {
@@ -116,7 +143,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
         <div className="p-8 text-center space-y-6">
           <div className="flex justify-center mb-6">
-            <img src="/logo-large.png" alt="Duxtur Edu" className="w-32 h-auto" />
+            <img src={assetPath('/logo-large.png')} alt="Duxtur Edu" className="w-32 h-auto" />
           </div>
 
           <div className="space-y-2">
@@ -129,6 +156,38 @@ export default function LoginPage() {
           </div>
 
           <InAppBrowserNotice />
+
+          {portal.signedIn && (
+            <div className="space-y-3">
+              <button
+                onClick={handleDuxturLogin}
+                disabled={portalStarting}
+                className="w-full min-h-[56px] flex items-center gap-3 bg-blue-600 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 text-white rounded-lg px-4 py-2.5 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-base font-semibold uppercase">
+                  {(portal.name || portal.email || '?').charAt(0)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words font-medium leading-snug">
+                    {portalStarting
+                      ? t('auth.signing_in', 'Signing in...')
+                      : t('auth.continue_as', { name: portal.name || portal.email, defaultValue: 'Continue as {{name}}' })}
+                  </span>
+                  <span className="block truncate text-xs text-blue-100">{t('auth.duxtur_account', 'duxtur.org account')}</span>
+                </span>
+              </button>
+              {!portal.eduUid && (
+                <p className="text-xs text-slate-500 text-left">
+                  {t('auth.duxtur_first_time', 'This creates your Edu profile from your duxtur.org account.')}
+                </p>
+              )}
+              <div className="flex items-center gap-3 text-xs text-slate-400" aria-hidden="true">
+                <span className="h-px flex-1 bg-slate-200" />
+                {t('auth.or', 'or')}
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+            </div>
+          )}
 
           <button
             onClick={handleLogin}

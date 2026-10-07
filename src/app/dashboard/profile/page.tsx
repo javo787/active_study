@@ -3,6 +3,7 @@
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import ProfileForm from '@/components/ProfileForm';
+import SignInMethods from '@/components/SignInMethods';
 
 export default function ProfilePage() {
   const { user, updateProfile } = useAuth();
@@ -19,6 +20,8 @@ export default function ProfilePage() {
         <p className="text-sm text-slate-500 mb-1 mt-3">Account Role</p>
         <p className="font-medium text-slate-800 capitalize">{user.role}</p>
       </div>
+
+      <SignInMethods />
 
       <ProfileForm
         kind={user.role === 'student' && user.teacherStatus !== 'pending' ? 'student' : 'teacher'}

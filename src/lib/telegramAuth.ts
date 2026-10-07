@@ -6,7 +6,7 @@
 
 import { describeError, tgLog, tgNewAttempt, tokenRef } from '@/lib/tgLog';
 
-const DUXTUR_HOSTS = ['duxtur.org', 'www.duxtur.org'];
+export const DUXTUR_HOSTS = ['duxtur.org', 'www.duxtur.org'];
 // Used only when this app runs outside duxtur.org (e.g. its own *.vercel.app host). www is the host that
 // actually serves duxtur.org; the bare domain redirects, and a cross-origin POST cannot follow a redirect.
 const DEFAULT_REMOTE_AUTH_BASE = 'https://www.duxtur.org';

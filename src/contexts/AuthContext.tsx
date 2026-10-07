@@ -9,6 +9,7 @@ import { toast } from 'react-hot-toast';
 import { startTelegramLogin, waitForTelegramLogin, TelegramLoginSession } from '@/lib/telegramAuth';
 import { describeError, tgLog } from '@/lib/tgLog';
 import { joinGroupByCode, leaveGroupMembership } from '@/lib/groups';
+import { requestPortalCustomToken } from '@/lib/portalAccount';
 
 interface AppUser {
   uid: string;
@@ -40,6 +41,8 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   startTelegramSignIn: () => Promise<TelegramLoginSession>;
   finishTelegramSignIn: (session: TelegramLoginSession, signal?: AbortSignal) => Promise<void>;
+  /** Sign in with the duxtur.org account that is already signed in in this browser (throws PortalAccountError). */
+  signInWithDuxtur: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (data: ProfileData) => Promise<void>;
   joinGroup: (code: string) => Promise<Group>;
@@ -55,6 +58,7 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => {},
   startTelegramSignIn: async () => { throw new Error('AuthProvider missing'); },
   finishTelegramSignIn: async () => {},
+  signInWithDuxtur: async () => { throw new Error('AuthProvider missing'); },
   signOut: async () => {},
   updateProfile: async () => {},
   joinGroup: async () => { throw new Error('AuthProvider missing'); },
@@ -101,18 +105,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else {
             // Create new user document with default 'student' role
             let displayName = firebaseUser.displayName || '';
-            if (!displayName) {
-              // Telegram sign-in has no Google profile; the portal puts the name in a token claim.
+            let email = firebaseUser.email || '';
+            if (!displayName || !email) {
+              // Telegram and duxtur.org sign-in have no Google profile; the portal puts the name (and for
+              // duxtur.org accounts the e-mail) in token claims.
               try {
-                const tokenResult = await firebaseUser.getIdTokenResult();
-                if (typeof tokenResult.claims.tgName === 'string') displayName = tokenResult.claims.tgName;
+                const { claims } = await firebaseUser.getIdTokenResult();
+                if (!displayName && typeof claims.tgName === 'string') displayName = claims.tgName;
+                if (!email && typeof claims.portalEmail === 'string') email = claims.portalEmail;
               } catch {}
             }
             appUser = {
               uid: firebaseUser.uid,
               role: 'student',
               displayName: displayName || 'Anonymous',
-              email: firebaseUser.email || '',
+              email,
             };
             await setDoc(userDocRef, {
               ...appUser,
@@ -188,6 +195,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithDuxtur = async () => {
+    const customToken = await requestPortalCustomToken();
+    await signInWithCustomToken(auth, customToken);
+  };
+
   const updateProfile = async (data: ProfileData) => {
     if (!user) return;
     try {
@@ -247,7 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signOut, updateProfile, joinGroup, leaveGroup, pruneGroups, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, startTelegramSignIn, finishTelegramSignIn, signInWithDuxtur, signOut, updateProfile, joinGroup, leaveGroup, pruneGroups, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

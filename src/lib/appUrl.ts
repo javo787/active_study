@@ -8,3 +8,11 @@ export function appUrl(path: string): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return `${origin}${BASE_PATH}${path}`;
 }
+
+/**
+ * Path of a file from /public. Plain <img src> is not prefixed by Next with the base path, so under duxtur.org/edu
+ * a bare "/logo.png" asks the portal (not Edu) for the file and gets a 404.
+ */
+export function assetPath(path: string): string {
+  return `${BASE_PATH}${path}`;
+}
