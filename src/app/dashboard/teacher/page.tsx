@@ -10,9 +10,15 @@ import { toMillis, toDate } from '@/lib/time';
 import { formatDistanceToNow } from 'date-fns';
 import { FileText, Database, Users, AlertCircle, PlusCircle, Upload, List } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
+import { useTranslation } from 'react-i18next';
+import { REQUESTS_HREF } from '@/lib/nav';
+import { useRequestCount } from '@/hooks/useRequestCount';
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
+  // Only a head teacher is asked; for everybody else it stays 0 and nothing is read.
+  const waitingRequests = useRequestCount(user?.role === 'teacher' ? user : null);
   const [stats, setStats] = useState({
     publishedExams: 0,
     activeNow: 0,
@@ -109,6 +115,16 @@ export default function TeacherDashboard() {
   return (
     <div className="space-y-8">
       <h2 className="text-2xl font-bold text-slate-800">Teacher Dashboard</h2>
+
+      {waitingRequests > 0 && (
+        <Link
+          href={REQUESTS_HREF}
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 min-h-[44px] text-sm text-amber-900 hover:bg-amber-100"
+        >
+          <span>{t('requests.banner', { count: waitingRequests })}</span>
+          <span className="font-medium underline">{t('requests.banner_action')}</span>
+        </Link>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">

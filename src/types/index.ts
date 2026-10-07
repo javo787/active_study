@@ -18,6 +18,14 @@ export interface User {
   /** Teachers: department. */
   department?: string;
   teacherStatus?: TeacherStatus;
+  /**
+   * "Head teacher": a teacher (role stays 'teacher') whom the admin trusts with the teacher requests.
+   * Only the admin sets it (firestore.rules); it does nothing on an account that is not a teacher.
+   */
+  headTeacher?: boolean;
+  /** Who approved this teacher, and when. Written by the admin's or head teacher's approval. */
+  teacherApprovedBy?: string;
+  teacherApprovedAt?: Date | Timestamp;
   /** Ids of the groups this user belongs to (see Group). */
   groupIds?: string[];
   expiresAt?: Date | Timestamp;

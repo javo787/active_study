@@ -8,6 +8,12 @@ service cloud.firestore {
     }
     function isAdmin() { return signedIn() && myRole() == 'admin'; }
     function isTeacher() { return signedIn() && myRole() == 'teacher'; }
+    // The head teacher is a teacher the admin trusts with the teacher requests (users/{uid}.headTeacher == true).
+    // Only a teacher can be one: a stale flag on a student does nothing.
+    function isHeadTeacher() {
+      return isTeacher()
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('headTeacher', false) == true;
+    }
 
     // Group membership: users/{uid}.groupIds holds the join codes (= groups/{code} ids).
     function myGroups() {
@@ -66,26 +72,62 @@ service cloud.firestore {
     }
 
     // A user may only raise their own teacher request (none -> pending).
-    // Approving or rejecting it is the admin's job.
+    // Approving or rejecting it is the admin's job, or the head teacher's (see headTeacherAnswer).
     function teacherRequestAllowed() {
       let before = resource.data.get('teacherStatus', null);
       let after = request.resource.data.get('teacherStatus', null);
       return before == after || (before == null && after == 'pending');
     }
 
+    // A request the head teacher may read and answer: somebody who asked (pending) or was declined (rejected).
+    function isOpenRequest() {
+      // Plain field reads and == on purpose: a list query is allowed only when its own filters (role == 'student',
+      // teacherStatus == 'pending' or 'rejected') prove the rule for every document it could return.
+      return resource.data.role == 'student'
+          && (resource.data.teacherStatus == 'pending' || resource.data.teacherStatus == 'rejected');
+    }
+
+    // What the head teacher may write, and nothing else:
+    //  * approve: student -> teacher, the request is gone, the student TTL is gone, and who approved is on record;
+    //  * decline: pending -> rejected.
+    // Their own document is never a request (a teacher is not a student), and `headTeacher` is not in either list.
+    function headTeacherAnswer() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let after = request.resource.data;
+      return isHeadTeacher() && isOpenRequest() && (
+        (changed.hasOnly(['role', 'teacherStatus', 'expiresAt', 'teacherApprovedBy', 'teacherApprovedAt'])
+          && after.role == 'teacher'
+          // A flag left on an account that was once a head teacher must not come back to life with an approval:
+          // only the admin makes a head teacher.
+          && resource.data.get('headTeacher', false) != true
+          && !('teacherStatus' in after)
+          && !('expiresAt' in after)
+          && after.teacherApprovedBy == request.auth.uid
+          && after.teacherApprovedAt == request.time)
+        ||
+        (changed.hasOnly(['teacherStatus'])
+          && resource.data.teacherStatus == 'pending'
+          && after.teacherStatus == 'rejected'));
+    }
+
     match /users/{userId} {
-      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin();
+      allow get: if signedIn() && (request.auth.uid == userId || isAdmin() || (isHeadTeacher() && isOpenRequest()));
+      // A head teacher may list only with a query that asks for the requests (role == student, teacherStatus == pending|rejected).
+      allow list: if isAdmin() || (isHeadTeacher() && isOpenRequest());
       allow create: if signedIn() && request.auth.uid == userId
                     && request.resource.data.role == 'student'
                     && !('teacherStatus' in request.resource.data)
+                    && !('headTeacher' in request.resource.data)
+                    && !('teacherApprovedBy' in request.resource.data)
                     && request.resource.data.get('groupIds', []).size() == 0;
       allow update: if signedIn() && (
         (request.auth.uid == userId
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+          && !request.resource.data.diff(resource.data).affectedKeys()
+               .hasAny(['role', 'headTeacher', 'teacherApprovedBy', 'teacherApprovedAt'])
           && teacherRequestAllowed()
           && groupsChangeAllowed())
-        || isAdmin());
+        || isAdmin()
+        || headTeacherAnswer());
       allow delete: if isAdmin();
     }
 

@@ -45,6 +45,8 @@
       "admin_portal": "Admin Portal",
       "dashboard": "Dashboard",
       "articles": "Articles",
+      "teacher_requests": "Teacher requests",
+      "head_teacher_portal": "Head Teacher Portal"
       "assistant": "Assistant"
     },
     "common": {
@@ -129,6 +131,27 @@
       "edit": "Edit",
       "edit_label": "Edit the article “{{title}}”",
       "link_hint": "This Edu account is not linked to your duxtur.org account yet. Link them, and your groups and results are available when you sign in from the portal.",
+      "link_action": "Link in profile",
+      "write_hint": "The editor opens on duxtur.org. We ask for your doctor details once, when an article is ready to send."
+    },
+    "requests": {
+      "title": "Teacher requests",
+      "intro": "People who asked for teacher access. Approve the ones you know teach; they get teacher tools right away.",
+      "empty": "No requests right now. New ones will appear here.",
+      "approve": "Approve",
+      "decline": "Decline",
+      "approved": "{{name}} is a teacher now",
+      "declined": "Request from {{name}} declined",
+      "error": "Could not save the answer. Check your connection and try again.",
+      "load_failed": "Could not load the requests.",
+      "retry": "Try again",
+      "no_details": "No details given",
+      "telegram": "Telegram sign-in",
+      "declined_title": "Declined ({{count}})",
+      "declined_hint": "Changed your mind? Approve a declined request and the person becomes a teacher.",
+      "waiting_label": "requests waiting",
+      "banner": "Teacher requests waiting for your answer: {{count}}",
+      "banner_action": "Review"
       "link_action": "Link in profile"
     },
     "assistant": {
