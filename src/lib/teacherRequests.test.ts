@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 // The module imports the Firebase app; the pure parts under test need none of it.
 vi.mock('@/lib/firebase', () => ({ db: {} }));
 
-import { DECLINE_UPDATE, approvalUpdate, canAnswerRequests } from './teacherRequests';
+import { canAnswerRequests } from './teacherRequests';
+import { DECLINE_UPDATE, approvalUpdate } from './teacherRequestUpdates';
 
 describe('approvalUpdate', () => {
   it('writes exactly the keys the rules let a head teacher change', () => {
