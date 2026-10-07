@@ -46,7 +46,7 @@
       "dashboard": "Dashboard",
       "articles": "Articles",
       "teacher_requests": "Teacher requests",
-      "head_teacher_portal": "Head Teacher Portal"
+      "head_teacher_portal": "Head Teacher Portal",
       "assistant": "Assistant"
     },
     "common": {
@@ -80,9 +80,9 @@
       "link": "Link this account",
       "linking": "Linking...",
       "link_confirm_title": "Link to duxtur.org?",
-      "link_confirm_body": "Your Edu account ({{method}}) will be linked to the duxtur.org account {{name}} ({{email}}). From now on \"Continue as\" on the sign-in page opens this Edu profile, with its groups and results. You can unlink at any time.",
+      "link_confirm_body": "Your Edu account ({{method}}) will be linked to the duxtur.org account {{name}} ({{email}}). From now on \"Continue as\" on the sign-in page opens this Edu profile, with the same account and data as on duxtur.org.",
       "link_confirm": "Link",
-      "linked_elsewhere": "{{name}} on duxtur.org is already linked to another Edu account, so it cannot be linked to this one. Sign in to Edu with duxtur.org to open that account and unlink it there.",
+      "linked_elsewhere": "{{name}} on duxtur.org is already linked to another Edu account, so it cannot be linked to this one. Sign in to Edu with duxtur.org to open that account and unlink it there first.",
       "unlink": "Unlink",
       "unlinking": "Unlinking...",
       "unlink_confirm_title": "Unlink duxtur.org?",
@@ -151,7 +151,7 @@
       "declined_hint": "Changed your mind? Approve a declined request and the person becomes a teacher.",
       "waiting_label": "requests waiting",
       "banner": "Teacher requests waiting for your answer: {{count}}",
-      "banner_action": "Review"
+      "banner_action": "Review",
       "link_action": "Link in profile"
     },
     "assistant": {
