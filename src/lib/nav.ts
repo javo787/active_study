@@ -64,6 +64,7 @@ const TITLE_MAP: Record<string, string> = {
   '/dashboard/student': 'nav.student_dashboard',
   '/dashboard/student/assistant': 'nav.assistant',
   '/dashboard/student/assistant/session': 'nav.assistant',
+  '/dashboard/student/assistant/bank': 'nav.assistant',
   '/dashboard/teacher': 'nav.teacher_dashboard',
   '/dashboard/teacher/exams': 'nav.my_exams',
   '/dashboard/teacher/exams/create': 'common.create',

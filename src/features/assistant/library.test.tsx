@@ -161,6 +161,15 @@ describe('a bank in the list', () => {
     expect(sessions[0]).toMatchObject({ mode: 'training', questionIds: ['b1:1'] });
   });
 
+  it('opens the test in View mode', async () => {
+    const user = userEvent.setup();
+    await withBank();
+    render(<AssistantPage />);
+    await user.click(await screen.findByRole('button', { name: /Geography/ }));
+    await user.click(screen.getByRole('button', { name: 'View' }));
+    expect(push).toHaveBeenCalledWith('/dashboard/student/assistant/bank?id=b1');
+  });
+
   it('refuses a broken range instead of starting', async () => {
     const user = userEvent.setup();
     await withBank();
