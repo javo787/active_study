@@ -16,7 +16,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const files = [...sourceFiles('src/features/assistant'), 'src/app/dashboard/student/assistant/page.tsx', 'src/app/dashboard/student/assistant/session/SessionLoader.tsx'];
+const files = [...sourceFiles('src/features/assistant'), 'src/app/dashboard/student/assistant/page.tsx', 'src/app/dashboard/student/assistant/session/SessionLoader.tsx', 'src/app/dashboard/student/assistant/bank/BankLoader.tsx'];
 const code = files.map(f => readFileSync(f, 'utf8')).join('\n');
 
 describe('Assistant translations', () => {
@@ -49,6 +49,7 @@ describe('Assistant translations', () => {
       mode_: ['single', 'multiple', 'mixed'],
       scope_: ['all', 'random', 'range'],
       sort_: ['recent', 'name', 'progress'],
+      status_: ['new', 'wrong', 'correct'],
       issue_: ['ignored_line', 'unmarked_option', 'unmarked_question', 'inline_options', 'no_text', 'few_options', 'no_correct', 'duplicate'],
     };
     for (const [prefix, suffixes] of Object.entries(dynamic)) {
@@ -61,7 +62,7 @@ describe('Assistant translations', () => {
   });
 
   it('has no translation that the code never uses', () => {
-    const prefixes = ['mode_', 'scope_', 'sort_', 'issue_'];
+    const prefixes = ['mode_', 'scope_', 'sort_', 'status_', 'issue_'];
     const unused = Object.keys(locales.en.translation.assistant).filter(
       k => !prefixes.some(p => k.startsWith(p)) && !code.includes(`assistant.${k}'`) && !code.includes(`assistant.${k}\``) && !code.includes(`assistant.${k}"`)
     );

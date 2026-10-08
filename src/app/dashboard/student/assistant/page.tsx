@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-hot-toast';
-import { ArrowUpDown, Download, FilePlus2, GraduationCap, Pencil, Play, ShieldAlert, Trash2 } from 'lucide-react';
+import { ArrowUpDown, BookOpen, Download, FilePlus2, GraduationCap, Pencil, Play, ShieldAlert, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -290,6 +290,10 @@ export default function AssistantPage() {
             )}
             <button type="button" className={openSessions.has(active.id) ? btnQuiet : btnPrimary} onClick={() => void beginStart(active, 'training')}>
               {t('assistant.training')}
+            </button>
+            <button type="button" className={btnQuiet} onClick={() => router.push(`/dashboard/student/assistant/bank?id=${active.id}`)}>
+              <BookOpen className="w-4 h-4" aria-hidden="true" />
+              {t('assistant.view')}
             </button>
             <button type="button" className={btnQuiet} onClick={() => void beginStart(active, 'exam')}>
               {t('assistant.exam')}
