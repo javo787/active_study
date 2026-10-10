@@ -10,6 +10,7 @@ import { describeError, tgLog, tgWatchCsp } from '@/lib/tgLog';
 import TelegramDiagnostics from '@/components/TelegramDiagnostics';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import InstallApp from '@/components/InstallApp';
 import { PortalSession, emailSignInPath, fetchPortalSession, portalErrorKey } from '@/lib/portalAccount';
 import { DUXTUR_HOSTS } from '@/lib/telegramAuth';
 import { assetPath } from '@/lib/appUrl';
@@ -278,6 +279,7 @@ export default function LoginPage() {
           <p className="text-sm text-slate-500">
             {t('auth.footer', 'Secure, reliable online examination platform.')}
           </p>
+          <InstallApp />
         </div>
       </div>
     </div>
