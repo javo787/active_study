@@ -38,3 +38,10 @@ body {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* The exam is not printed: the questions of a proctored attempt are left out of the page. */
+@media print {
+  .exam-no-print {
+    display: none !important;
+  }
+}
