@@ -298,6 +298,16 @@
       "show_more": "Show more ({{n}})",
       "view_list_label": "Questions of the test",
       "bank_missing": "Test not found. Go back to the list of tests."
+    },
+    "examGuard": {
+      "title": "The exam is hidden",
+      "left_exam_area": "You left the exam page. Come back to continue.",
+      "focus_lost": "Another window or panel is on top of the exam. Close it and come back.",
+      "window_resized": "The window is small or the screen is split. Make the window full size to continue.",
+      "screenshot_key": "A screenshot key was pressed.",
+      "print_attempt": "Printing the exam is not allowed.",
+      "recorded": "This is recorded and your teacher can see it.",
+      "resume": "Back to the exam"
     }
   }
 }

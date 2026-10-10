@@ -8,6 +8,7 @@ import { Attempt, Exam, Group, Question, AttemptStatus } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { toDate, toMillis } from '@/lib/time';
+import { describeViolation } from '@/lib/examGuard';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatStrip } from '@/components/ui/StatStrip';
@@ -638,7 +639,7 @@ export function AttemptsContent() {
                       <td className="px-3 py-3 whitespace-nowrap">
                         <StatusBadge status={a.status} />
                         {(a.violationCount || 0) > 0 && (
-                          <div className="mt-1 flex items-center text-xs text-flag" title={a.violationReason}>
+                          <div className="mt-1 flex items-center text-xs text-flag" title={describeViolation(a.violationReason)}>
                             <AlertCircle className="w-3 h-3 mr-1" />
                             {a.violationCount} warnings
                           </div>
@@ -670,7 +671,7 @@ export function AttemptsContent() {
                                   const vDate = toDate(v.at);
                                   return (
                                     <li key={i}>
-                                      {vDate ? format(vDate, 'HH:mm') : ''} — {v.reason}
+                                      {vDate ? format(vDate, 'HH:mm') : ''} — {describeViolation(v.reason)}
                                     </li>
                                   );
                                 })}
@@ -758,9 +759,9 @@ export function AttemptsContent() {
                        </div>
 
                        {(a.violationCount || 0) > 0 && (
-                          <div className="flex items-center text-xs text-red-500" title={a.violationReason}>
+                          <div className="flex items-center text-xs text-red-500" title={describeViolation(a.violationReason)}>
                             <AlertCircle className="w-3 h-3 mr-1" />
-                            {a.violationCount} warnings: {a.violationReason}
+                            {a.violationCount} warnings: {describeViolation(a.violationReason)}
                           </div>
                         )}
 
@@ -790,7 +791,7 @@ export function AttemptsContent() {
                                   const vDate = toDate(v.at);
                                   return (
                                     <li key={i}>
-                                      {vDate ? format(vDate, 'HH:mm') : ''} — {v.reason}
+                                      {vDate ? format(vDate, 'HH:mm') : ''} — {describeViolation(v.reason)}
                                     </li>
                                   );
                                 })}

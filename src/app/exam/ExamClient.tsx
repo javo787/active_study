@@ -11,6 +11,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toMillis, formatClock } from '@/lib/time';
 import ProfileSetup from '@/components/ProfileSetup';
 import InAppBrowserNotice from '@/components/InAppBrowserNotice';
+import ExamShield from '@/components/ExamShield';
+import ExamWatermark from '@/components/ExamWatermark';
+import { describeViolation } from '@/lib/examGuard';
 import Link from 'next/link';
 
 // Mulberry32 PRNG
@@ -88,7 +91,7 @@ export default function ExamTakingInterface() {
       totalQuestions: snap.totalQuestions,
       finishedAt: Timestamp.now(),
     } : null);
-    setErrorMsg(`Your attempt was stopped (${reason}).`);
+    setErrorMsg(`Your attempt was stopped (${describeViolation(reason)}).`);
     setStatus('terminated');
   }, [computeScoreSnapshot]);
 
@@ -96,7 +99,7 @@ export default function ExamTakingInterface() {
     toast.error(`Warning ${count} of ${max} — leaving the exam page is recorded.`);
   }, []);
 
-  useProctoring({
+  const proctor = useProctoring({
     attemptId: attempt?.id || null,
     status,
     enabled: exam?.proctoringEnabled !== false,
@@ -178,7 +181,7 @@ export default function ExamTakingInterface() {
           setAnswers(attemptData.answers || {});
 
           if (attemptData.status === 'flagged') {
-            setErrorMsg(`Your attempt was stopped (${attemptData.violationReason || 'violation'}).`);
+            setErrorMsg(`Your attempt was stopped (${describeViolation(attemptData.violationReason) || 'violation'}).`);
             setStatus('terminated');
           } else {
             setStatus('completed');
@@ -676,7 +679,8 @@ export default function ExamTakingInterface() {
                   {exam?.proctoringEnabled !== false && (
                     <>
                       <li><strong>Focus:</strong> Switching tabs or losing window focus will result in a warning. {exam?.maxViolations ?? 3} warnings will stop the exam.</li>
-                      <li><strong>Security:</strong> Right-click and Copy/Paste are disabled.</li>
+                      <li><strong>Window:</strong> Keep the window full size. A split screen, a small or floating window, or another window or panel on top hides the questions and counts as a warning.</li>
+                      <li><strong>Security:</strong> Right-click, Copy/Paste, printing and screenshot keys are disabled or recorded. Your name is shown faintly over the questions.</li>
                     </>
                   )}
                   <li><strong>Connectivity:</strong> Your progress is saved automatically. If you lose connection, do not refresh—wait for it to reconnect.</li>
@@ -774,8 +778,15 @@ export default function ExamTakingInterface() {
     }
   };
 
+  const proctored = !isPreviewMode && exam?.proctoringEnabled !== false;
+  const watermarkText = proctored ? [user.fullName || user.email || '', user.uid.slice(0, 6)].filter(Boolean).join(' · ') : '';
+
   return (
-    <div className="flex flex-col h-[100dvh] bg-slate-50 select-none" style={{ WebkitTouchCallout: 'none' }}>
+    <>
+    <div
+      className="exam-no-print flex flex-col h-[100dvh] bg-slate-50 select-none"
+      style={{ WebkitTouchCallout: 'none', visibility: proctor.covered ? 'hidden' : undefined }}
+    >
       {/* Sticky Top Bar */}
       <header className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -978,5 +989,8 @@ export default function ExamTakingInterface() {
         </div>
       )}
     </div>
+    {watermarkText && <ExamWatermark text={watermarkText} />}
+    {proctor.covered && <ExamShield reason={proctor.reason} onResume={proctor.recheck} />}
+    </>
   );
 }
