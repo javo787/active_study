@@ -10,6 +10,7 @@ import { canAnswerRequests } from '@/lib/teacherRequests';
 import { useRequestCount } from '@/hooks/useRequestCount';
 import ProfileSetup from '@/components/ProfileSetup';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import InstallApp from '@/components/InstallApp';
 import { assetPath } from '@/lib/appUrl';
 import { useTranslation } from 'react-i18next';
 
@@ -235,6 +236,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <p className="text-sm text-white font-medium truncate">{user.displayName}</p>
                   <p className="text-xs text-slate-500 truncate">{user.email}</p>
               </div>
+            <InstallApp variant="sidebar" />
             <button onClick={signOut} className="w-full text-left px-4 py-2 min-h-[44px] rounded-md text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors text-sm font-medium">
               {t('nav.sign_out', 'Sign Out')}
             </button>
@@ -277,6 +279,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <p className="text-sm text-white font-medium truncate">{user.displayName}</p>
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
             </div>
+          <InstallApp variant="sidebar" />
           <button onClick={signOut} className="w-full text-left px-4 py-2 rounded-md text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors text-sm font-medium">
             {t('nav.sign_out', 'Sign Out')}
           </button>

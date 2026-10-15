@@ -308,6 +308,14 @@
       "print_attempt": "Printing the exam is not allowed.",
       "recorded": "This is recorded and your teacher can see it.",
       "resume": "Back to the exam"
+    },
+    "pwa": {
+      "install": "Install the app",
+      "ios_title": "Install on iPhone or iPad",
+      "ios_step1": "Tap the Share button in Safari.",
+      "ios_step2": "Choose “Add to Home Screen”.",
+      "ios_step3": "Tap Add. Duxtur Edu appears among your apps.",
+      "got_it": "Got it"
     }
   }
 }
